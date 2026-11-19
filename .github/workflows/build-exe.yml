@@ -1,0 +1,34 @@
+name: Compilar Instalador POS (.exe)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Generar instalador .exe
+        run: npm run build:electron
+
+      - name: Subir instalador .exe para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: Instalador-POS-Windows
+          path: |
+            dist-electron/*.exe
+            release/*.exe
+            out/*.exe
+          if-no-files-found: warn
