@@ -113,7 +113,7 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    icon: getAssetPath('favicon.png'),
+    icon: getAssetPath('app-icon.png'),
     menu: null,
     autoHideMenuBar: true,
     webPreferences: {
