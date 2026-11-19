@@ -21,6 +21,9 @@ jobs:
         run: npm ci
 
       - name: Generar instalador .exe
+        env:
+          GH_TOKEN: ""
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run build:electron
 
       - name: Subir instalador .exe para descargar
