@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Download, X } from 'lucide-react';
+import type { ElectronUpdateStatus } from '@/electron';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { ChatProvider } from '@/lib/chat';
 import { DeviceModeProvider } from '@/lib/deviceMode';
@@ -50,6 +52,45 @@ const MODULE_PERMISSIONS: Record<ModuleKey, string> = {
 };
 
 const ACTIVE_TAB_KEY = 'pos_active_tab';
+
+function AppUpdateNotice() {
+  const [status, setStatus] = useState<ElectronUpdateStatus | null>(null);
+
+  useEffect(() => {
+    const subscribe = window.electronAPI?.onUpdateStatus;
+    if (!subscribe) return undefined;
+    return subscribe((nextStatus) => {
+      if (nextStatus.status === 'available' || nextStatus.status === 'downloading' || nextStatus.status === 'downloaded') {
+        setStatus(nextStatus);
+      }
+    });
+  }, []);
+
+  if (!status) return null;
+
+  const downloaded = status.status === 'downloaded';
+  const percent = Math.max(0, Math.min(100, status.percent ?? 0));
+  const installNow = async () => {
+    await window.electronAPI?.installUpdate();
+  };
+
+  return (
+    <div className="fixed right-4 top-4 z-[100] w-[min(380px,calc(100vw-2rem))] rounded-xl border border-emerald-200 bg-white p-3 shadow-xl shadow-slate-900/10">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-emerald-100 p-2 text-emerald-700"><Download size={17} /></div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-slate-800">{downloaded ? 'Nueva versión lista' : 'Actualización del sistema'}</div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            {downloaded ? 'Se instalará al cerrar el programa. Puedes hacerlo ahora cuando no haya una venta en curso.' : status.status === 'available' ? 'Nueva versión disponible, descargando...' : `Descargando nueva versión... ${percent}%`}
+          </p>
+          {!downloaded && status.status === 'downloading' && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${percent}%` }} /></div>}
+          {downloaded && <button type="button" onClick={() => void installNow()} className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700">Reiniciar y actualizar ahora</button>}
+        </div>
+        <button type="button" onClick={() => setStatus(null)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" title="Ocultar aviso"><X size={15} /></button>
+      </div>
+    </div>
+  );
+}
 
 function AppContent() {
   const { session, profile, loading, signOut, branches, currentBranch, setCurrentBranchId, hasPermission, canSwitchBranch } = useAuth();
@@ -168,6 +209,7 @@ export default function App() {
   return (
     <AuthProvider>
       <DeviceModeProvider>
+        <AppUpdateNotice />
         <ChatWidgets />
       </DeviceModeProvider>
     </AuthProvider>

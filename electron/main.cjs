@@ -1,8 +1,33 @@
 const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('node:path');
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
+let updateDownloaded = false;
+
+function sendUpdateStatus(status, details = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('app-update-status', { status, ...details });
+}
+
+function configureAutoUpdater() {
+  if (isDev || process.platform !== 'win32') return;
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => sendUpdateStatus('checking'));
+  autoUpdater.on('update-available', (info) => sendUpdateStatus('available', { version: info.version }));
+  autoUpdater.on('download-progress', (progress) => sendUpdateStatus('downloading', { percent: Math.round(progress.percent) }));
+  autoUpdater.on('update-downloaded', (info) => {
+    updateDownloaded = true;
+    sendUpdateStatus('downloaded', { version: info.version });
+  });
+
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(() => undefined);
+  }, 3000);
+}
 
 function getAssetPath(fileName) {
   const appRoot = isDev ? path.join(__dirname, '..') : app.getAppPath();
@@ -21,6 +46,12 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('get-app-version', () => app.getVersion());
+
+  ipcMain.handle('install-update', () => {
+    if (!updateDownloaded) return false;
+    autoUpdater.quitAndInstall(false, true);
+    return true;
+  });
 
   ipcMain.handle('print-ticket', async (_event, html, options = {}) => {
     if (typeof html !== 'string' || !html.trim()) throw new Error('El contenido del ticket está vacío.');
@@ -112,6 +143,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   registerIpcHandlers();
   createMainWindow();
+  configureAutoUpdater();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });

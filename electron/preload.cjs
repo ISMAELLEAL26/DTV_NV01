@@ -5,5 +5,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printLabels: (html, options) => ipcRenderer.invoke('print-labels', html, options),
   getPrinters: () => ipcRenderer.invoke('get-printers'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  onUpdateStatus: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on('app-update-status', handler);
+    return () => ipcRenderer.removeListener('app-update-status', handler);
+  },
   isElectron: true,
 });
