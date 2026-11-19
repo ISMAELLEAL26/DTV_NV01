@@ -281,20 +281,28 @@ export default function PurchasesPage({ initialTab = 'purchases' }: { initialTab
     return { before: summary.before + value.beforeTotal, after: summary.after + value.afterTotal, tax: summary.tax + value.taxTotal };
   }, { before: 0, after: 0, tax: 0 });
 
+  const loadCashBoxes = useCallback(async (branchId: string) => {
+    const [{ data: boxes, error: boxesError }, { data: occupied, error: occError }] = await Promise.all([
+      supabase.from('cash_boxes').select('id, name').eq('branch_id', branchId).eq('active', true).order('name'),
+      supabase.rpc('get_occupied_cash_boxes', { p_branch_id: branchId }),
+    ]);
+    if (boxesError || occError) {
+      console.error('cash boxes load failed', boxesError ?? occError);
+      setCashBoxes([]);
+      setError('No se pudieron cargar las cajas de la sucursal. Cierra y vuelve a abrir la pantalla.');
+      return;
+    }
+    const registerByBox = new Map(((occupied as { box_id: string; register_id: string }[]) ?? []).map((row) => [row.box_id, row.register_id]));
+    setCashBoxes(((boxes as { id: string; name: string }[]) ?? []).map((box) => ({ ...box, registerId: registerByBox.get(box.id) ?? null })));
+  }, []);
+
   const openNew = (type: Tab) => {
     setTab(type); setSupplierId(''); setLineItems([blankLine()]); setError(null);
     setActiveLineIndex(0); setPurchaseFolio(generateFolio(type === 'purchases' ? 'C' : 'P'));
     setPaymentMethod('efectivo'); setCashExit(type === 'purchases'); setCashBoxId('');
     setEmailMessage(null); clearDraft(); setHasDraft(false);
     setOpen(true);
-    if (type === 'purchases' && currentBranch) {
-      void (async () => {
-        const { data: boxes } = await supabase.from('cash_boxes').select('id, name').eq('branch_id', currentBranch.id).eq('active', true).order('name');
-        const { data: registers } = await supabase.from('cash_registers').select('id, cash_box_id').eq('branch_id', currentBranch.id).eq('status', 'abierta');
-        const registerByBox = new Map(((registers as { id: string; cash_box_id: string | null }[]) ?? []).map((register) => [register.cash_box_id, register.id]));
-        setCashBoxes(((boxes as { id: string; name: string }[]) ?? []).map((box) => ({ ...box, registerId: registerByBox.get(box.id) ?? null })));
-      })();
-    }
+    if (type === 'purchases' && currentBranch) void loadCashBoxes(currentBranch.id);
   };
 
   const restoreDraft = () => {
@@ -303,6 +311,7 @@ export default function PurchasesPage({ initialTab = 'purchases' }: { initialTab
     setTab(draft.tab); setSupplierId(draft.supplierId); setLineItems(draft.lineItems); setError(null);
     setHasDraft(false);
     setOpen(true);
+    if (draft.tab === 'purchases' && currentBranch) void loadCashBoxes(currentBranch.id);
   };
 
   const discardDraft = () => {
