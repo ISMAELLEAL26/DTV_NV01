@@ -7,7 +7,7 @@ import Button from '@/components/Button';
 import Modal from '@/components/Modal';
 import { Field, Input, Select, Textarea } from '@/components/Field';
 import { PageHeader, SearchInput, Card, EmptyState, Spinner, Badge } from '@/components/ui';
-import { Package, Plus, Pencil, Trash2, Image as ImageIcon, AlertTriangle, Star, Boxes, Tags, Trash, FileSpreadsheet, Upload, Download, FolderTree, Layers, MapPin, CheckCircle2, XCircle, Loader2, Eye, ScanLine, Coins } from 'lucide-react';
+import { Package, Plus, Pencil, Trash2, Image as ImageIcon, AlertTriangle, Star, Boxes, Tags, Trash, FileSpreadsheet, Upload, Download, FolderTree, Layers, MapPin, CheckCircle2, XCircle, Loader2, Eye, ScanLine, Coins, Printer } from 'lucide-react';
 import { downloadXLSX, downloadXLSXTemplate, parseCSV, readSpreadsheet, readFileText } from '@/lib/excel';
 import { matchesQuery } from '@/lib/search';
 import PriceManagerPage from './PriceManagerPage';
@@ -18,6 +18,7 @@ import ImageUploadPicker, { type ImageUploadValue } from '@/components/ImageUplo
 import { uploadImage } from '@/lib/imageUpload';
 import LocationsManager from '@/components/LocationsManager';
 import ProductMassUpdateModal from '@/components/ProductMassUpdateModal';
+import LabelDesignerModal from '@/components/LabelDesignerModal';
 import { locationHeader } from '@/lib/productMassUpdate';
 import BranchPricesEditor from '@/components/products/BranchPricesEditor';
 import { BRANCH_PRICE_FIELDS, branchPriceHeaders, buildBranchPriceRows, computeMarginPercent, draftFromPrices, draftToInput, effectivePrices, fetchAllBranchPrices, hasNegativePrice, upsertBranchPriceRows, type BranchPriceDraft, type BranchPriceField, type BranchPriceInput } from '@/lib/branchPrices';
@@ -148,6 +149,7 @@ export default function ProductsPage() {
   const [deptModalOpen, setDeptModalOpen] = useState(false);
   const [locModalOpen, setLocModalOpen] = useState(false);
   const [massOpen, setMassOpen] = useState(false);
+  const [labelOpen, setLabelOpen] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
   const [deptRows, setDeptRows] = useState<Department[]>([]);
   const [catForm, setCatForm] = useState({ id: '', code: '', name: '', description: '' });
@@ -707,6 +709,9 @@ export default function ProductsPage() {
                   {bulkBusy ? <Loader2 size={14} className="animate-spin" /> : <Coins size={14} />}
                   Sin puntos
                 </Button>
+                <Button variant="secondary" onClick={() => setLabelOpen(true)} disabled={bulkBusy}>
+                  <Printer size={14} /> Imprimir etiquetas
+                </Button>
                 <Button variant="danger" onClick={deleteSelectedProducts} disabled={bulkBusy}>
                   {bulkBusy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                   Eliminar {selectedProducts.size} seleccionado(s)
@@ -1222,6 +1227,12 @@ export default function ProductsPage() {
 
       <LocationsManager open={locModalOpen} onClose={() => setLocModalOpen(false)} branches={branches} locations={locations} productsByLocation={productsByLocation} onChanged={load} />
       <ProductMassUpdateModal open={massOpen} onClose={() => setMassOpen(false)} products={products} categories={categories} locations={locations} branches={branches} stockRows={stockRows} branchPrices={branchPriceRows} onApplied={load} />
+      <LabelDesignerModal
+        open={labelOpen}
+        onClose={() => setLabelOpen(false)}
+        products={products.filter((product) => selectedProducts.has(product.id))}
+        departmentNames={Object.fromEntries(deptRows.map((department) => [department.code, department.name]))}
+      />
 
       {/* Categories modal */}
       <Modal open={catModalOpen} onClose={() => setCatModalOpen(false)} title="Categorías" size="lg">
@@ -1398,10 +1409,10 @@ function ImportExportTab({ products, lookupProducts, stockRows, locations, categ
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const stockMap = useMemo(() => {
-    const m = new Map<string, Record<string, number>>();
+    const m = new Map<string, Record<string, ProductStock>>();
     stockRows.forEach((r) => {
       if (!m.has(r.product_id)) m.set(r.product_id, {});
-      m.get(r.product_id)![r.branch_id] = Number(r.quantity);
+      m.get(r.product_id)![r.branch_id] = r;
     });
     return m;
   }, [stockRows]);
@@ -1476,7 +1487,7 @@ function ImportExportTab({ products, lookupProducts, stockRows, locations, categ
         const branchPriceData = branches.flatMap((b) => {
           const row = branchPriceRows.find((r) => r.product_id === p.id && r.branch_id === b.id);
           if (p.prices_shared) return BRANCH_PRICE_FIELDS.map(() => '');
-          return BRANCH_PRICE_FIELDS.map((f) => row ? (row as Record<string, unknown>)[f.field] ?? '' : '');
+          return BRANCH_PRICE_FIELDS.map((f) => row ? String(((row as unknown) as Record<string, unknown>)[f.field] ?? '') : '');
         });
         return [p.sku ?? '', p.barcode ?? '', p.name, p.cost_price, p.sale_price, p.price_2, p.price_3, p.tax_rate, p.ieps_rate ?? 0, p.prices_shared ? 'Sí' : 'No', ...branchPriceData, margin];
       });

@@ -302,8 +302,8 @@ export default function POSSubMenu({ onTurnChange }: Props) {
       await closeTurn(countedCash, denominationCounts, methodTotals);
       const salesByMethod = METHOD_KEYS.map((mk) => ({
         method: mk.key,
-        count: mk.key === 'efectivo' ? (summaryAtClose?.cashCount ?? 0) : mk.countField ? (summaryAtClose?.[mk.countField] ?? 0) : 0,
-        total: mk.key === 'efectivo' ? (summaryAtClose?.cashSales ?? 0) : summaryAtClose?.[mk.key === 'tarjeta' ? 'cardDebit' : mk.key === 'credito' ? 'cardCredit' : mk.key] ?? 0,
+        count: mk.key === 'efectivo' ? (summaryAtClose?.cashCount ?? 0) : mk.countField ? ((summaryAtClose as unknown as Record<string, number> | null)?.[mk.countField] ?? 0) : 0,
+        total: mk.key === 'efectivo' ? (summaryAtClose?.cashSales ?? 0) : ((summaryAtClose as unknown as Record<string, number> | null)?.[mk.key === 'tarjeta' ? 'cardDebit' : mk.key === 'credito' ? 'cardCredit' : mk.key] ?? 0),
       }));
       const closedRegister = { ...registerAtClose, status: 'cerrada', closing_amount: totalDeclared, expected_amount: totalSystem, difference: globalDiff, closed_at: new Date().toISOString() } as CashRegister;
       if (closedRegister && branch) {

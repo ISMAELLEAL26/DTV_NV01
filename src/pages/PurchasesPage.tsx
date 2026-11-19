@@ -196,7 +196,7 @@ async function createPurchasePdf({
   doc.setFontSize(8); doc.setTextColor(130, 130, 130); doc.text('Generado automáticamente por el sistema de punto de venta.', 18, 282);
   const report = `Compra ${folio}\nFecha: ${createdAt}\nSucursal: ${branchName}\nProveedor: ${supplierName}\nUsuario: ${userName} (${userContact})\nMétodo de pago: ${payment}\nCaja de salida: ${cashBox || 'No aplica'}\nTotal: ${formatCurrency(total)}\nCadena de validación: ${validationCode}`;
   const dataUri = doc.output('datauristring');
-  return { url: doc.output('bloburl'), pdfBase64: dataUri.slice(dataUri.indexOf(',') + 1), report, validationCode };
+  return { url: String(doc.output('bloburl')), pdfBase64: dataUri.slice(dataUri.indexOf(',') + 1), report, validationCode };
 }
 
 export default function PurchasesPage({ initialTab = 'purchases' }: { initialTab?: Tab }) {

@@ -1,14 +1,17 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('node:path');
-const fs = require('node:fs');
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
 
+function getAssetPath(fileName) {
+  const appRoot = isDev ? path.join(__dirname, '..') : app.getAppPath();
+  return path.join(appRoot, 'dist', fileName);
+}
+
 function registerIpcHandlers() {
   ipcMain.handle('get-printers', async () => {
     if (!mainWindow || mainWindow.isDestroyed()) return [];
-
     const printers = await mainWindow.webContents.getPrintersAsync();
     return printers.map((printer) => ({
       name: printer.name,
@@ -20,62 +23,68 @@ function registerIpcHandlers() {
   ipcMain.handle('get-app-version', () => app.getVersion());
 
   ipcMain.handle('print-ticket', async (_event, html, options = {}) => {
-    if (typeof html !== 'string' || !html.trim()) {
-      throw new Error('El contenido del ticket está vacío.');
-    }
+    if (typeof html !== 'string' || !html.trim()) throw new Error('El contenido del ticket está vacío.');
+    await printHiddenHtml(html, options, false);
+  });
 
-    const printWindow = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
-
-    const printableHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
-    const url = `data:text/html;charset=UTF-8,${encodeURIComponent(printableHtml)}`;
-
-    try {
-      await new Promise((resolve, reject) => {
-        printWindow.webContents.once('did-finish-load', resolve);
-        printWindow.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => {
-          reject(new Error(`${errorCode}: ${errorDescription}`));
-        });
-        printWindow.loadURL(url);
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      await new Promise((resolve, reject) => {
-        const printOptions = {
-          silent: true,
-          printBackground: true,
-        };
-        const printerName = typeof options?.printerName === 'string' ? options.printerName.trim() : '';
-        if (printerName) printOptions.deviceName = printerName;
-
-        printWindow.webContents.print(printOptions, (success, failureReason) => {
-          if (success) resolve();
-          else reject(new Error(failureReason || 'No se pudo enviar el ticket a la impresora.'));
-        });
-      });
-    } finally {
-      if (!printWindow.isDestroyed()) printWindow.close();
-    }
+  ipcMain.handle('print-labels', async (_event, html, options = {}) => {
+    if (typeof html !== 'string' || !html.trim()) throw new Error('El contenido de las etiquetas está vacío.');
+    await printHiddenHtml(html, options, true);
   });
 }
 
-function getIndexHtmlPath() {
-  if (isDev) {
-    return path.join(__dirname, '..', 'dist', 'index.html');
+async function printHiddenHtml(html, options, waitForImages) {
+  const printWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  const printableHtml = waitForImages ? html.replace(/<script[\s\S]*?<\/script>/gi, '') : html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  const url = `data:text/html;charset=UTF-8,${encodeURIComponent(printableHtml)}`;
+
+  try {
+    await new Promise((resolve, reject) => {
+      printWindow.webContents.once('did-finish-load', resolve);
+      printWindow.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => reject(new Error(`${errorCode}: ${errorDescription}`)));
+      printWindow.loadURL(url);
+    });
+
+    if (waitForImages) {
+      await printWindow.webContents.executeJavaScript(`Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, waitForImages ? 250 : 300));
+
+    await new Promise((resolve, reject) => {
+      const printOptions = {
+        silent: true,
+        printBackground: true,
+        ...(waitForImages ? { margins: { marginType: 'none' } } : {}),
+      };
+      const printerName = typeof options?.printerName === 'string' ? options.printerName.trim() : '';
+      if (printerName) printOptions.deviceName = printerName;
+      printWindow.webContents.print(printOptions, (success, failureReason) => {
+        if (success) resolve();
+        else reject(new Error(failureReason || 'No se pudo enviar el trabajo a la impresora.'));
+      });
+    });
+  } finally {
+    if (!printWindow.isDestroyed()) printWindow.close();
   }
-  return path.join(app.getAppPath(), 'dist', 'index.html');
+}
+
+function getIndexHtmlPath() {
+  return getAssetPath('index.html');
 }
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    icon: getAssetPath('favicon.png'),
+    menu: null,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -83,30 +92,26 @@ function createMainWindow() {
     },
   });
 
-  if (isDev && process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-  } else {
-    mainWindow.loadFile(getIndexHtmlPath());
-  }
+  mainWindow.setMenu(null);
+  mainWindow.removeMenu();
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.setAutoHideMenuBar(true);
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  if (isDev && process.env.VITE_DEV_SERVER_URL) mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+  else mainWindow.loadFile(getIndexHtmlPath());
+
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   registerIpcHandlers();
   createMainWindow();
-
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });

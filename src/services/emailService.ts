@@ -92,7 +92,7 @@ export async function sendBusinessEmail(type: BusinessEmailType, data: BusinessE
 
     const res = await fetch(getFunctionUrl('send-ticket-email'), {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: authHeaders,
       body: JSON.stringify({
         to: recipientEmail,
         subject,
