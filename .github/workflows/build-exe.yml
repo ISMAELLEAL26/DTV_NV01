@@ -16,8 +16,20 @@ jobs:
           cache: 'npm'
       - name: Instalar dependencias
         run: npm ci
+      - name: Validar configuración de la aplicación
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_URL) -or [string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_ANON_KEY)) {
+            throw "Faltan los secretos VITE_SUPABASE_URL y/o VITE_SUPABASE_ANON_KEY en GitHub."
+          }
+
       - name: Generar instalador
         env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           GH_TOKEN: ""
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run build:electron -- --publish never
