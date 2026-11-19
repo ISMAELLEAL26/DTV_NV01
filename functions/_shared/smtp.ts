@@ -46,15 +46,7 @@ export async function sendViaGmailSmtp(opts: SendEmailOptions): Promise<{ ok: bo
         if (line.length < 4 || line[3] !== "-") return response;
       }
     };
-    const send = async (command: string): Promise<void> => {
-      const data = encoder.encode(`${command}\r\n`);
-      let offset = 0;
-      while (offset < data.length) {
-        const written = await conn.write(data.subarray(offset));
-        if (written <= 0) throw new Error('SMTP connection closed while sending data');
-        offset += written;
-      }
-    };
+    const send = (command: string) => conn.write(encoder.encode(`${command}\r\n`));
 
     if (!(await readResponse()).startsWith("220")) return { ok: false, error: "Gmail no respondió." };
     await send("EHLO localhost");
