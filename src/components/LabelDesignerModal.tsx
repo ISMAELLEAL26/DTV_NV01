@@ -203,9 +203,9 @@ export default function LabelDesignerModal({ open, onClose, product, template, o
 
             <div className="rounded-xl border border-slate-200 p-4">
               <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Guardar como plantilla nueva</label>
-              <div className="flex gap-2">
-                <input className={`${fieldClass} w-full`} value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Nombre de la plantilla" />
-                <Button onClick={handleSaveTemplate}><Save size={15} /> Guardar</Button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input className={`${fieldClass} w-full min-w-0`} value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Nombre de la plantilla" />
+                <Button className="w-full sm:w-auto" onClick={handleSaveTemplate}><Save size={15} /> Guardar</Button>
               </div>
               <p className="mt-2 text-[11px] leading-4 text-slate-500">Las plantillas guardadas quedan disponibles en el selector de la pantalla de Etiquetas.</p>
             </div>

@@ -35,7 +35,7 @@ export default function Modal({ open, onClose, title, children, size = 'md', clo
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeOnOverlay ? onClose : undefined} />
       <div className={`relative w-full ${sizes[size]} max-h-[85vh] max-h-[85dvh] overflow-hidden rounded-2xl bg-white shadow-2xl flex flex-col`}>
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-6 sm:py-4">
-          <h2 className="text-base font-semibold text-slate-800 sm:text-lg">{title}</h2>
+          <h2 className="min-w-0 flex-1 truncate pr-2 text-base font-semibold text-slate-800 sm:text-lg">{title}</h2>
           {closeOnOverlay && (
             <button
               onClick={onClose}
