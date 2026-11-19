@@ -94,8 +94,13 @@ function createMainWindow() {
 
   mainWindow.setMenu(null);
   mainWindow.removeMenu();
-  mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.once('ready-to-show', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.setMenu(null);
+    mainWindow.setMenuBarVisibility(false);
+  });
 
   if (isDev && process.env.VITE_DEV_SERVER_URL) mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   else mainWindow.loadFile(getIndexHtmlPath());
