@@ -168,6 +168,16 @@ function LabelsPageContent() {
     setBatches((data as SavedBatch[]) ?? []);
   }, []);
 
+  // Refresh the batch list whenever any user of this branch saves or prints a
+  // batch from another device.
+  useEffect(() => {
+    const channel = supabase
+      .channel('label-batches-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'label_print_batches' }, () => { void loadBatches(); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [loadBatches]);
+
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
@@ -227,8 +237,13 @@ function LabelsPageContent() {
   const addProduct = useCallback((product: Product) => {
     setQueue((current) => {
       const existing = current.find((item) => item.product.id === product.id);
-      if (existing) return current.map((item) => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-      return [...current, { product, quantity: 1 }];
+      if (existing) {
+        return [
+          { product, quantity: existing.quantity + 1 },
+          ...current.filter((item) => item.product.id !== product.id),
+        ];
+      }
+      return [{ product, quantity: 1 }, ...current];
     });
     setProductInput('');
     setMessage(null);
@@ -309,9 +324,11 @@ function LabelsPageContent() {
       setError('No se pudo guardar el contenido del lote.');
       return;
     }
-    setSelectedBatchId(batch.id);
-    setBatches((current) => [batch as SavedBatch, ...current]);
-    setMessage(`Lote "${name}" guardado. Ya puedes abrirlo desde otra computadora.`);
+    setSelectedBatchId(null);
+    setQueue([]);
+    setBatchName(`Lote ${new Date().toLocaleDateString('es-MX')}`);
+    await loadBatches();
+    setMessage(`Lote "${name}" guardado. Ya puedes abrirlo desde cualquier usuario o equipo de la sucursal. La cola quedó lista para un lote nuevo.`);
   };
 
   const loadBatch = async (batch: SavedBatch) => {
