@@ -7,31 +7,29 @@ jobs:
   build-windows:
     runs-on: windows-latest
 
+
     steps:
-      - name: Descargar código del repositorio
+            - name: Descargar código del repositorio
         uses: actions/checkout@v4
 
-      - name: Configurar Node.js
+            - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      - name: Instalar dependencias
+            - name: Instalar dependencias
         run: npm ci
 
-      - name: Generar instalador .exe
+            - name: Generar instalador .exe
         env:
           GH_TOKEN: ""
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run build:electron
+        run: npm run build:electron -- --publish never
 
-      - name: Subir instalador .exe para descargar
+            - name: Subir instalador .exe para descargar
         uses: actions/upload-artifact@v4
         with:
           name: Instalador-POS-Windows
-          path: |
-            dist-electron/*.exe
-            release/*.exe
-            out/*.exe
+          path: release/*.exe
           if-no-files-found: warn
