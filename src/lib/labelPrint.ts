@@ -35,6 +35,10 @@ export interface LabelData {
   logoDataUrl: string;
 }
 
+export function getProductCode(product: Product): string {
+  return product.barcode?.trim() || product.barcode_2?.trim() || product.sku?.trim() || product.id.slice(0, 12);
+}
+
 export const LABEL_WIDTH = 37.5;
 export const LABEL_HEIGHT = 30;
 

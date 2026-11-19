@@ -23,6 +23,7 @@ import AuthorizationCenterPage from '@/pages/AuthorizationCenterPage';
 import InventoryHistoryPage from '@/pages/InventoryHistoryPage';
 import SuppliersPage from '@/pages/SuppliersPage';
 import InventoryTransfersPage from '@/pages/InventoryTransfersPage';
+import LabelsPage from '@/pages/LabelsPage';
 import { Spinner } from '@/components/ui';
 import { Store } from 'lucide-react';
 
@@ -43,6 +44,7 @@ const MODULE_PERMISSIONS: Record<ModuleKey, string> = {
   'authorizations': 'settings',
   'inventory-history': 'reports',
   'suppliers': 'purchases',
+  'labels': 'products',
   'settings': 'settings',
   'advertising': 'settings',
 };
@@ -138,6 +140,7 @@ function AppContent() {
     'authorizations': <AuthorizationCenterPage />,
     'inventory-history': <InventoryHistoryPage />,
     'suppliers': <SuppliersPage />,
+    'labels': <LabelsPage />,
     'settings': <SettingsPage />,
     'advertising': <AdvertisingPage />,
   };

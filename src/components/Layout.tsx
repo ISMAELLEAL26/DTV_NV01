@@ -7,7 +7,7 @@ import {
   Wallet, ClipboardList, Settings, LogOut, Store, ChevronDown,
   ClipboardCheck, Smartphone, Monitor, Menu, Maximize, Minimize,
   ShieldCheck, History, Truck, Calculator, RefreshCw, Boxes, Image as ImageIcon,
-  MessageCircle,
+  MessageCircle, Tags,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { PROGRAM_LOGO } from '@/lib/branding';
@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabase';
 export type ModuleKey =
   | 'pos' | 'products' | 'customers' | 'users' | 'attendance'
   | 'reports' | 'advanced-stats' | 'cash' | 'purchases' | 'supplier-orders' | 'payroll'
-  | 'queries' | 'settings' | 'advertising' | 'authorizations' | 'inventory-history' | 'suppliers' | 'inventory-transfers';
+  | 'queries' | 'settings' | 'advertising' | 'authorizations' | 'inventory-history' | 'suppliers' | 'inventory-transfers' | 'labels';
 
 interface NavItem {
   key: ModuleKey;
@@ -28,6 +28,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { key: 'pos', label: 'Punto de Venta', icon: <ShoppingCart size={18} />, permission: 'sales' },
   { key: 'products', label: 'Productos', icon: <Package size={18} />, permission: 'products' },
+  { key: 'labels', label: 'Etiquetas', icon: <Tags size={18} />, permission: 'products' },
   { key: 'customers', label: 'Clientes', icon: <Users size={18} />, permission: 'customers' },
   { key: 'purchases', label: 'Compras', icon: <ClipboardList size={18} />, permission: 'purchases' },
   { key: 'supplier-orders', label: 'Pedidos a Proveedor', icon: <ClipboardCheck size={18} />, permission: 'purchases' },

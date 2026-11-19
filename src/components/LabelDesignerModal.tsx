@@ -1,23 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import QRCode from 'qrcode';
-import { Check, ImagePlus, Loader2, Move, Printer, RefreshCw, RotateCcw, ScanLine, Settings2, Type, Upload } from 'lucide-react';
+import { Check, ImagePlus, Move, RotateCcw, Save, ScanLine, Settings2, Type, Upload } from 'lucide-react';
 import type { Product } from '@/lib/types';
 import Button from '@/components/Button';
 import Modal from '@/components/Modal';
-import { code128Svg, createDefaultLabelLayout, printLabels, type LabelAlign, type LabelData, type LabelElement, type LabelLayout } from '@/lib/labelPrint';
+import { code128Svg, createDefaultLabelLayout, getProductCode, type LabelAlign, type LabelData, type LabelElement, type LabelLayout } from '@/lib/labelPrint';
+import { LABEL_LOGO_STORAGE_KEY, type LabelTemplate } from '@/lib/labelTemplates';
 
 interface LabelDesignerModalProps {
   open: boolean;
   onClose: () => void;
-  products: Product[];
-  priceOverrides?: Record<string, number>;
+  product?: Product | null;
+  template: LabelTemplate;
+  onSaveTemplate: (name: string, layout: LabelLayout) => void;
   departmentNames?: Record<string, string>;
-}
-
-interface PrinterInfo {
-  name: string;
-  displayName: string;
-  isDefault: boolean;
 }
 
 interface DragState {
@@ -28,13 +24,7 @@ interface DragState {
   element: LabelElement;
 }
 
-const PRINTER_STORAGE_KEY = 'pos_label_printer_name';
-const LOGO_STORAGE_KEY = 'pos_label_logo_data_url';
 const fieldClass = 'rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10';
-
-function getProductCode(product: Product): string {
-  return product.barcode?.trim() || product.barcode_2?.trim() || product.sku?.trim() || product.id.slice(0, 12);
-}
 
 function formatPrice(value: number): string {
   return `$${value.toLocaleString('es-MX', { minimumFractionDigits: value % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`;
@@ -68,53 +58,48 @@ function PreviewElement({ element, data }: { element: LabelElement; data: LabelD
   return <div className={`${common} ${alignClass}`} style={style}>{value}</div>;
 }
 
-export default function LabelDesignerModal({ open, onClose, products, priceOverrides = {}, departmentNames = {} }: LabelDesignerModalProps) {
-  const [layout, setLayout] = useState<LabelLayout>(() => createDefaultLabelLayout());
+export default function LabelDesignerModal({ open, onClose, product, template, onSaveTemplate, departmentNames = {} }: LabelDesignerModalProps) {
+  const [layout, setLayout] = useState<LabelLayout>(() => template.layout);
   const [selectedElementId, setSelectedElementId] = useState('product');
-  const [previewProductId, setPreviewProductId] = useState(products[0]?.id ?? '');
-  const [copies, setCopies] = useState('1');
+  const [templateName, setTemplateName] = useState('');
   const [logoSource, setLogoSource] = useState('');
   const [previewQr, setPreviewQr] = useState('');
-  const [printers, setPrinters] = useState<PrinterInfo[]>([]);
-  const [printerName, setPrinterName] = useState('');
-  const [printerError, setPrinterError] = useState<string | null>(null);
-  const [printing, setPrinting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
 
-  const selectedProduct = useMemo(() => products.find((product) => product.id === previewProductId) ?? products[0] ?? null, [products, previewProductId]);
   const selectedElement = layout.elements.find((element) => element.id === selectedElementId) ?? layout.elements[0];
-  const isElectron = Boolean(window.electronAPI?.printLabels);
 
-  const buildData = (product: Product, qrDataUrl = previewQr): LabelData => ({
-    product,
-    price: priceOverrides[product.id] ?? Number(product.sale_price),
-    code: getProductCode(product),
-    department: departmentNames[product.department ?? ''] ?? product.department ?? product.category?.name ?? '',
-    qrDataUrl,
-    logoDataUrl: logoSource,
-  });
+  const buildData = (qrDataUrl = previewQr): LabelData | null => {
+    if (!product) return null;
+    return {
+      product,
+      price: Number(product.sale_price),
+      code: getProductCode(product),
+      department: departmentNames[product.department ?? ''] ?? product.department ?? product.category?.name ?? '',
+      qrDataUrl,
+      logoDataUrl: logoSource,
+    };
+  };
 
-  const previewData = selectedProduct ? buildData(selectedProduct) : null;
+  const previewData = buildData();
 
   useEffect(() => {
     if (!open) return;
-    setPreviewProductId((current) => products.some((product) => product.id === current) ? current : products[0]?.id ?? '');
-    setLogoSource(readStoredValue(LOGO_STORAGE_KEY));
-    setPrinterName(readStoredValue(PRINTER_STORAGE_KEY));
-    setPrinterError(null);
+    setLayout(template.layout);
+    setSelectedElementId('product');
+    setLogoSource(readStoredValue(LABEL_LOGO_STORAGE_KEY));
     setError(null);
-  }, [open, products]);
+  }, [open, template]);
 
   useEffect(() => {
     let active = true;
-    if (!selectedProduct) { setPreviewQr(''); return () => { active = false; }; }
-    QRCode.toDataURL(getProductCode(selectedProduct), { margin: 0, width: 220, color: { dark: '#000000', light: '#ffffff' } })
+    if (!product) { setPreviewQr(''); return () => { active = false; }; }
+    QRCode.toDataURL(getProductCode(product), { margin: 0, width: 220, color: { dark: '#000000', light: '#ffffff' } })
       .then((url) => { if (active) setPreviewQr(url); })
       .catch(() => { if (active) setPreviewQr(''); });
     return () => { active = false; };
-  }, [selectedProduct]);
+  }, [product, open]);
 
   useEffect(() => {
     const move = (event: PointerEvent) => {
@@ -141,27 +126,6 @@ export default function LabelDesignerModal({ open, onClose, products, priceOverr
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); };
   }, [layout.width, layout.height]);
 
-  const refreshPrinters = async () => {
-    setPrinterError(null);
-    if (!window.electronAPI?.getPrinters) {
-      setPrinters([]);
-      return;
-    }
-    try {
-      const list = await window.electronAPI.getPrinters();
-      setPrinters(list);
-      const saved = readStoredValue(PRINTER_STORAGE_KEY);
-      if (saved && !list.some((printer) => printer.name === saved)) setPrinterError(`La impresora de etiquetas guardada no está conectada: ${saved}`);
-      if (!printerName && list.length > 0) setPrinterName(saved || list.find((printer) => printer.isDefault)?.name || list[0].name);
-    } catch {
-      setPrinterError('No se pudieron detectar las impresoras instaladas.');
-    }
-  };
-
-  useEffect(() => {
-    if (open) void refreshPrinters();
-  }, [open]);
-
   const startDrag = (event: ReactPointerEvent<HTMLElement>, element: LabelElement, mode: 'move' | 'resize') => {
     event.preventDefault();
     event.stopPropagation();
@@ -185,7 +149,7 @@ export default function LabelDesignerModal({ open, onClose, products, priceOverr
     reader.onload = () => {
       const value = typeof reader.result === 'string' ? reader.result : '';
       setLogoSource(value);
-      try { window.localStorage.setItem(LOGO_STORAGE_KEY, value); } catch { setError('El logo es demasiado grande para guardarlo localmente.'); }
+      try { window.localStorage.setItem(LABEL_LOGO_STORAGE_KEY, value); } catch { setError('El logo es demasiado grande para guardarlo localmente.'); }
     };
     reader.readAsDataURL(file);
     event.target.value = '';
@@ -193,44 +157,23 @@ export default function LabelDesignerModal({ open, onClose, products, priceOverr
 
   const handleLogoUrl = (value: string) => {
     setLogoSource(value);
-    try { window.localStorage.setItem(LOGO_STORAGE_KEY, value); } catch { /* local storage can be unavailable in private windows */ }
+    try { window.localStorage.setItem(LABEL_LOGO_STORAGE_KEY, value); } catch { /* local storage can be unavailable in private windows */ }
   };
 
-  const handlePrinterChange = (value: string) => {
-    setPrinterName(value);
-    setPrinterError(null);
-    try { window.localStorage.setItem(PRINTER_STORAGE_KEY, value); } catch { /* local printer selection is best effort */ }
-  };
-
-  const handlePrint = async () => {
+  const handleSaveTemplate = () => {
+    const name = templateName.trim();
+    if (!name) { setError('Escribe un nombre para la plantilla.'); return; }
+    onSaveTemplate(name, layout);
+    setTemplateName('');
     setError(null);
-    if (!selectedProduct || products.length === 0) { setError('Selecciona al menos un producto.'); return; }
-    if (isElectron && printers.length === 0) { setError('No hay una impresora disponible para etiquetas. Conecta la impresora y actualiza la lista.'); return; }
-    if (isElectron && (!printerName || !printers.some((printer) => printer.name === printerName))) { setPrinterError(`Selecciona una impresora de etiquetas conectada antes de imprimir${printerName ? `: ${printerName}` : '.'}`); return; }
-    setPrinting(true);
-    try {
-      const count = Math.max(1, Math.min(500, Number.parseInt(copies, 10) || 1));
-      const labels: LabelData[] = [];
-      for (const product of products) {
-        const code = getProductCode(product);
-        const qrDataUrl = await QRCode.toDataURL(code, { margin: 0, width: 220, color: { dark: '#000000', light: '#ffffff' } });
-        for (let copy = 0; copy < count; copy++) labels.push(buildData(product, qrDataUrl));
-      }
-      await printLabels(labels, layout, printerName);
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron imprimir las etiquetas.');
-    } finally {
-      setPrinting(false);
-    }
   };
 
   return (
-    <Modal open={open} onClose={printing ? () => undefined : onClose} title="Diseñador de etiquetas" size="2xl" closeOnOverlay={!printing}>
+    <Modal open={open} onClose={onClose} title="Diseñador de plantillas de etiquetas" size="2xl">
       <div className="space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
           <div>
-            <div className="flex items-center gap-2 text-sm font-bold text-slate-800"><ScanLine size={18} className="text-emerald-600" /> Plantilla Estándar 37.5 × 30 mm</div>
+            <div className="flex items-center gap-2 text-sm font-bold text-slate-800"><ScanLine size={18} className="text-emerald-600" /> Editando: {template.name}</div>
             <p className="mt-1 max-w-xl text-xs leading-5 text-slate-600">Arrastra los elementos dentro de la etiqueta. La impresión usa negro puro sobre blanco para impresoras térmicas de 203 dpi.</p>
           </div>
           <Button variant="secondary" size="sm" onClick={resetLayout}><RotateCcw size={15} /> Restablecer plantilla</Button>
@@ -256,15 +199,15 @@ export default function LabelDesignerModal({ open, onClose, products, priceOverr
               <div className="mt-3 flex items-center justify-center gap-2 text-[11px] text-slate-500"><Move size={13} /> Arrastra para mover · Esquina verde para redimensionar</div>
             </div>
 
+            {!product && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Agrega productos a la cola para ver una vista previa con datos reales.</p>}
+
             <div className="rounded-xl border border-slate-200 p-4">
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Producto para vista previa</label>
-              <select className={`${fieldClass} w-full`} value={selectedProduct?.id ?? ''} onChange={(event) => setPreviewProductId(event.target.value)}>
-                {products.map((product) => <option key={product.id} value={product.id}>{product.name} · {getProductCode(product)}</option>)}
-              </select>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <label className="text-xs font-semibold text-slate-500">Copias por producto<input className={`${fieldClass} mt-1 w-full`} type="number" min="1" max="500" value={copies} onChange={(event) => setCopies(event.target.value)} /></label>
-                <label className="text-xs font-semibold text-slate-500">Forma<select className={`${fieldClass} mt-1 w-full`} value={layout.shape} onChange={(event) => setLayout((current) => ({ ...current, shape: event.target.value as LabelLayout['shape'] }))}><option value="square">Rectangular</option><option value="rounded">Redondeada</option></select></label>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Guardar como plantilla nueva</label>
+              <div className="flex gap-2">
+                <input className={`${fieldClass} w-full`} value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Nombre de la plantilla" />
+                <Button onClick={handleSaveTemplate}><Save size={15} /> Guardar</Button>
               </div>
+              <p className="mt-2 text-[11px] leading-4 text-slate-500">Las plantillas guardadas quedan disponibles en el selector de la pantalla de Etiquetas.</p>
             </div>
           </div>
 
@@ -305,21 +248,12 @@ export default function LabelDesignerModal({ open, onClose, products, priceOverr
               </div>
               <input className={`${fieldClass} mt-2 w-full`} value={logoSource.startsWith('data:') ? '' : logoSource} onChange={(event) => handleLogoUrl(event.target.value)} placeholder="O pega una URL de logo" />
             </div>
-
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="mb-3 flex items-center justify-between gap-2"><div className="flex items-center gap-2 text-sm font-bold text-slate-800"><Printer size={16} className="text-emerald-600" /> Impresora de etiquetas</div><button type="button" onClick={() => void refreshPrinters()} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" title="Actualizar impresoras"><RefreshCw size={15} /></button></div>
-              {printers.length > 0 ? <select className={`${fieldClass} w-full`} value={printerName} onChange={(event) => handlePrinterChange(event.target.value)}><option value="">Selecciona una impresora</option>{printers.map((printer) => <option key={printer.name} value={printer.name}>{printer.displayName}{printer.isDefault ? ' · predeterminada del sistema' : ''}</option>)}</select> : <p className="text-xs text-slate-500">{isElectron ? 'No se detectaron impresoras instaladas.' : 'La lista estará disponible al abrir el programa de escritorio.'}</p>}
-              <p className="mt-2 text-[11px] leading-4 text-slate-500">Esta selección solo se usa para etiquetas. No cambia la impresora de tickets ni la predeterminada de Windows.</p>
-              {printerError && <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{printerError}</div>}
-            </div>
           </div>
         </div>
 
         {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-4">
-          <span className="mr-auto text-xs text-slate-500">{products.length} producto(s) · {products.length * Math.max(1, Number.parseInt(copies, 10) || 1)} etiqueta(s)</span>
-          <Button variant="secondary" onClick={onClose} disabled={printing}>Cancelar</Button>
-          <Button onClick={() => void handlePrint()} disabled={printing || products.length === 0}>{printing ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />}{printing ? 'Imprimiendo...' : 'Imprimir etiquetas'}</Button>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-4">
+          <Button variant="secondary" onClick={onClose}>Listo</Button>
         </div>
       </div>
     </Modal>

@@ -7,7 +7,7 @@ import Button from '@/components/Button';
 import Modal from '@/components/Modal';
 import { Field, Input, Select, Textarea } from '@/components/Field';
 import { PageHeader, SearchInput, Card, EmptyState, Spinner, Badge } from '@/components/ui';
-import { Package, Plus, Pencil, Trash2, Image as ImageIcon, AlertTriangle, Star, Boxes, Tags, Trash, FileSpreadsheet, Upload, Download, FolderTree, Layers, MapPin, CheckCircle2, XCircle, Loader2, Eye, ScanLine, Coins, Printer } from 'lucide-react';
+import { Package, Plus, Pencil, Trash2, Image as ImageIcon, AlertTriangle, Star, Boxes, Tags, Trash, FileSpreadsheet, Upload, Download, FolderTree, Layers, MapPin, CheckCircle2, XCircle, Loader2, Eye, ScanLine, Coins } from 'lucide-react';
 import { downloadXLSX, downloadXLSXTemplate, parseCSV, readSpreadsheet, readFileText } from '@/lib/excel';
 import { matchesQuery } from '@/lib/search';
 import PriceManagerPage from './PriceManagerPage';
@@ -18,7 +18,6 @@ import ImageUploadPicker, { type ImageUploadValue } from '@/components/ImageUplo
 import { uploadImage } from '@/lib/imageUpload';
 import LocationsManager from '@/components/LocationsManager';
 import ProductMassUpdateModal from '@/components/ProductMassUpdateModal';
-import LabelDesignerModal from '@/components/LabelDesignerModal';
 import { locationHeader } from '@/lib/productMassUpdate';
 import BranchPricesEditor from '@/components/products/BranchPricesEditor';
 import { BRANCH_PRICE_FIELDS, branchPriceHeaders, buildBranchPriceRows, computeMarginPercent, draftFromPrices, draftToInput, effectivePrices, fetchAllBranchPrices, hasNegativePrice, upsertBranchPriceRows, type BranchPriceDraft, type BranchPriceField, type BranchPriceInput } from '@/lib/branchPrices';
@@ -149,7 +148,6 @@ export default function ProductsPage() {
   const [deptModalOpen, setDeptModalOpen] = useState(false);
   const [locModalOpen, setLocModalOpen] = useState(false);
   const [massOpen, setMassOpen] = useState(false);
-  const [labelOpen, setLabelOpen] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
   const [deptRows, setDeptRows] = useState<Department[]>([]);
   const [catForm, setCatForm] = useState({ id: '', code: '', name: '', description: '' });
@@ -709,9 +707,6 @@ export default function ProductsPage() {
                   {bulkBusy ? <Loader2 size={14} className="animate-spin" /> : <Coins size={14} />}
                   Sin puntos
                 </Button>
-                <Button variant="secondary" onClick={() => setLabelOpen(true)} disabled={bulkBusy}>
-                  <Printer size={14} /> Imprimir etiquetas
-                </Button>
                 <Button variant="danger" onClick={deleteSelectedProducts} disabled={bulkBusy}>
                   {bulkBusy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                   Eliminar {selectedProducts.size} seleccionado(s)
@@ -1227,12 +1222,6 @@ export default function ProductsPage() {
 
       <LocationsManager open={locModalOpen} onClose={() => setLocModalOpen(false)} branches={branches} locations={locations} productsByLocation={productsByLocation} onChanged={load} />
       <ProductMassUpdateModal open={massOpen} onClose={() => setMassOpen(false)} products={products} categories={categories} locations={locations} branches={branches} stockRows={stockRows} branchPrices={branchPriceRows} onApplied={load} />
-      <LabelDesignerModal
-        open={labelOpen}
-        onClose={() => setLabelOpen(false)}
-        products={products.filter((product) => selectedProducts.has(product.id))}
-        departmentNames={Object.fromEntries(deptRows.map((department) => [department.code, department.name]))}
-      />
 
       {/* Categories modal */}
       <Modal open={catModalOpen} onClose={() => setCatModalOpen(false)} title="Categorías" size="lg">
