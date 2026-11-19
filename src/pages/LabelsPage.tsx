@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { formatCurrency } from '@/lib/format';
-import { matchesQuery } from '@/lib/search';
+import { matchesQuery, sanitizeFilterValue } from '@/lib/search';
 import type { Product, Department } from '@/lib/types';
 import { PageHeader, Card, EmptyState } from '@/components/ui';
 import Button from '@/components/Button';
@@ -48,6 +48,21 @@ interface SavedBatchItem {
 }
 
 const fieldClass = 'rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10';
+
+async function loadAllActiveProducts(): Promise<Product[]> {
+  const allProducts: Product[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('active', true)
+      .order('name')
+      .range(from, from + 999);
+    if (error) throw error;
+    allProducts.push(...((data as Product[]) ?? []));
+    if (!data || data.length < 1000) return allProducts;
+  }
+}
 
 function buildLabelData(product: Product, price: number, department: string, qrDataUrl: string, logoDataUrl: string): LabelData {
   return { product, price, code: getProductCode(product), department, qrDataUrl, logoDataUrl };
@@ -157,18 +172,21 @@ function LabelsPageContent() {
     if (loadedRef.current) return;
     loadedRef.current = true;
     void (async () => {
-      const [productResult, departmentResult] = await Promise.all([
-        supabase.from('products').select('*').eq('active', true).order('name').limit(5000),
-        supabase.from('departments').select('*').order('name'),
-      ]);
-      if (productResult.error || departmentResult.error) {
-        setError('No se pudo cargar el catálogo de productos.');
-      } else {
-        setProducts((productResult.data as Product[]) ?? []);
+      try {
+        const [loadedProducts, departmentResult] = await Promise.all([
+          loadAllActiveProducts(),
+          supabase.from('departments').select('*').order('name'),
+        ]);
+        if (departmentResult.error) throw departmentResult.error;
+        setProducts(loadedProducts);
         setDepartments((departmentResult.data as Department[]) ?? []);
+      } catch (cause) {
+        console.error('label catalog load failed', cause);
+        setError('No se pudo cargar el catálogo completo de productos.');
+      } finally {
+        setLoading(false);
+        await loadBatches();
       }
-      setLoading(false);
-      await loadBatches();
     })();
   }, [loadBatches]);
 
@@ -218,13 +236,35 @@ function LabelsPageContent() {
     window.setTimeout(() => productInputRef.current?.focus(), 0);
   }, []);
 
-  const handleProductInput = (raw: string) => {
+  const findProductByCode = useCallback(async (raw: string): Promise<Product | null> => {
+    const value = raw.trim();
+    if (!value) return null;
+    const normalized = value.toLowerCase();
+    const localMatch = products.find((product) => [product.barcode, product.barcode_2, product.sku, product.name].some((candidate) => candidate?.trim().toLowerCase() === normalized));
+    if (localMatch) return localMatch;
+    const filter = sanitizeFilterValue(value);
+    if (!filter) return null;
+    const { data, error: lookupError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('active', true)
+      .or(`barcode.eq.${filter},barcode_2.eq.${filter},sku.eq.${filter}`)
+      .limit(1);
+    if (lookupError) {
+      console.error('label product lookup failed', lookupError);
+      return null;
+    }
+    const match = ((data as Product[]) ?? [])[0] ?? null;
+    if (match) setProducts((current) => current.some((product) => product.id === match.id) ? current : [...current, match]);
+    return match;
+  }, [products]);
+
+  const handleProductInput = async (raw: string) => {
     const value = raw.trim();
     if (!value) return;
-    const normalized = value.toLowerCase();
-    const exact = products.find((product) => [product.barcode, product.barcode_2, product.sku, product.name].some((candidate) => candidate?.trim().toLowerCase() === normalized));
-    if (exact) {
-      addProduct(exact);
+    const product = await findProductByCode(value);
+    if (product) {
+      addProduct(product);
       return;
     }
     if (suggestions.length === 1) {
@@ -374,7 +414,7 @@ function LabelsPageContent() {
                   className={`${fieldClass} w-full`}
                   value={productInput}
                   onChange={(event) => setProductInput(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleProductInput(productInput); } }}
+                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void handleProductInput(productInput); } }}
                   placeholder="Escanea, escribe nombre/código y presiona Enter"
                   autoFocus
                   autoComplete="off"
@@ -390,7 +430,7 @@ function LabelsPageContent() {
                   </div>
                 )}
               </div>
-              <Button variant="secondary" onClick={() => setScannerOpen(true)} title="Escanear con cámara"><Camera size={17} /><span className="hidden sm:inline">Cámara</span></Button>
+              <Button className="w-full flex-shrink-0 sm:w-auto" variant="secondary" onClick={() => setScannerOpen(true)} title="Escanear con cámara"><Camera size={17} /><span className="hidden sm:inline">Cámara</span><span className="sm:hidden">Escanear con cámara</span></Button>
             </div>
             <p className="mt-2 flex items-center gap-1.5 text-[11px] leading-4 text-slate-500"><ScanLine size={13} /> El lector USB funciona cuando este campo está enfocado; la cámara agrega el producto desde el celular.</p>
           </Card>
@@ -406,12 +446,11 @@ function LabelsPageContent() {
               <div className="divide-y divide-slate-100">
                 {queue.map((item, index) => {
                   const department = departmentNames[item.product.department ?? ''] ?? item.product.department ?? item.product.category?.name ?? 'Sin departamento';
-                  return <div key={item.product.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  return <div key={item.product.id} className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-3 px-4 py-3 sm:flex sm:flex-wrap">
                     <span className="w-6 flex-shrink-0 text-xs font-semibold text-slate-400">{index + 1}</span>
                     <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100">{item.product.image_url ? <img src={item.product.image_url} alt="" className="h-full w-full object-cover" /> : <ImageIcon size={18} className="text-slate-400" />}</div>
-                    <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold text-slate-800">{item.product.name}</div><div className="truncate text-xs text-slate-500">{getProductCode(item.product)} · {formatCurrency(Number(item.product.sale_price))} · Departamento: {department}</div></div>
-                    <div className="flex flex-shrink-0 items-center gap-1"><button type="button" onClick={() => setQuantity(item.product.id, item.quantity - 1)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-bold text-slate-600 hover:bg-slate-50" title="Restar"><span aria-hidden="true">−</span></button><input className={`${fieldClass} w-16 text-center`} type="number" min="1" max="999" value={item.quantity} onChange={(event) => setQuantity(item.product.id, Number(event.target.value))} /><button type="button" onClick={() => setQuantity(item.product.id, item.quantity + 1)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-bold text-slate-600 hover:bg-slate-50" title="Sumar"><Plus size={15} /></button></div>
-                    <button type="button" onClick={() => removeItem(item.product.id)} className="flex-shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Quitar"><X size={17} /></button>
+                    <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-800">{item.product.name}</div><div className="truncate text-xs text-slate-500">{getProductCode(item.product)} · {formatCurrency(Number(item.product.sale_price))} · Departamento: {department}</div></div>
+                    <div className="col-span-3 flex items-center justify-end gap-1 sm:col-auto sm:ml-auto"><button type="button" onClick={() => setQuantity(item.product.id, item.quantity - 1)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-bold text-slate-600 hover:bg-slate-50" title="Restar"><span aria-hidden="true">−</span></button><input className={`${fieldClass} w-16 text-center`} type="number" min="1" max="999" value={item.quantity} onChange={(event) => setQuantity(item.product.id, Number(event.target.value))} /><button type="button" onClick={() => setQuantity(item.product.id, item.quantity + 1)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-bold text-slate-600 hover:bg-slate-50" title="Sumar"><Plus size={15} /></button><button type="button" onClick={() => removeItem(item.product.id)} className="ml-2 rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Quitar"><X size={17} /></button></div>
                   </div>;
                 })}
               </div>
@@ -420,7 +459,7 @@ function LabelsPageContent() {
 
           <Card className="p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><div className="text-sm font-bold text-slate-800">Guardar lote para imprimir después</div><p className="mt-1 text-xs text-slate-500">Guárdalo desde el celular y cárgalo aquí desde la computadora con la misma cuenta.</p></div><Save size={20} className="text-emerald-600" /></div>
-            <div className="flex gap-2"><input className={`${fieldClass} min-w-0 flex-1`} value={batchName} onChange={(event) => setBatchName(event.target.value)} placeholder="Nombre del lote" /><Button onClick={() => void saveBatch()} disabled={queue.length === 0}><Save size={15} /> Guardar lote</Button></div>
+            <div className="flex flex-col gap-2 sm:flex-row"><input className={`${fieldClass} min-w-0 flex-1`} value={batchName} onChange={(event) => setBatchName(event.target.value)} placeholder="Nombre del lote" /><Button className="w-full sm:w-auto" onClick={() => void saveBatch()} disabled={queue.length === 0}><Save size={15} /> Guardar lote</Button></div>
           </Card>
         </div>
 
@@ -447,7 +486,7 @@ function LabelsPageContent() {
         </div>
       </div>
 
-      <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onDetect={(code) => handleProductInput(code)} title="Escanear producto para etiquetas" />
+      <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onDetect={(code) => { void handleProductInput(code); }} title="Escanear producto para etiquetas" />
       <LabelDesignerModal open={designerOpen} onClose={() => setDesignerOpen(false)} product={queue[0]?.product ?? null} template={activeTemplate ?? { id: 'fallback', name: 'Estándar 37.5 × 30 mm', layout: defaultLabelTemplates()[0].layout, builtin: true }} onSaveTemplate={handleSaveTemplate} departmentNames={departmentNames} />
     </div>
   );
