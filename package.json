@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electrón/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -32,11 +33,10 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electrón/**/*"
     ],
     "win": {
-      "target": "nsis",
-      "icon": "electron/build/icon.png"
+      "target": "nsis"
     },
     "nsis": {
       "oneClick": false,
@@ -46,12 +46,10 @@
       "shortcutName": "POS"
     },
     "mac": {
-      "target": "dmg",
-      "icon": "electron/build/icon.png"
+      "target": "dmg"
     },
     "linux": {
-      "target": "AppImage",
-      "icon": "electron/build/icon.png"
+      "target": "AppImage"
     }
   },
   "devDependencies": {
