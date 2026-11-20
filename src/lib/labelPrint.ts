@@ -49,19 +49,18 @@ export const createDefaultLabelLayout = (): LabelLayout => ({
   marginLeft: 1.2,
   shape: 'square',
   elements: [
-    // 1. Nombre del producto arriba en 1-2 líneas compactas
-    { id: 'product', token: 'PRODUCTO', text: '', x: 1.2, y: 0.8, width: 35.1, height: 5.2, fontSize: 6.5, bold: true, align: 'center', visible: true },
-    // 2. Precio grande y protagonista al centro para verse a simple vista
-    { id: 'price', token: 'PRECIO', text: '', x: 1.2, y: 6.0, width: 35.1, height: 8.8, fontSize: 21, bold: true, align: 'center', visible: true },
-    // 3. QR compacto a la izquierda
-    { id: 'qr', token: 'QR', text: '', x: 1.5, y: 15.4, width: 8.6, height: 8.6, fontSize: 7, bold: true, align: 'center', visible: true },
-    // 4. Código corto/numérico debajo del QR con separación limpia
-    { id: 'qr-code', token: 'CODIGO', text: '', x: 1.0, y: 24.4, width: 10.2, height: 4.4, fontSize: 5.2, bold: true, align: 'center', visible: true },
-    // 5. Código completo en una sola línea a la derecha
-    { id: 'right-code', token: 'CODIGO', text: '', x: 11.2, y: 15.8, width: 25.1, height: 4.2, fontSize: 7.5, bold: true, align: 'right', visible: true },
-    // 6. Departamento limpio abajo a la derecha
-    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 11.2, y: 20.4, width: 25.1, height: 8.4, fontSize: 5.8, bold: true, align: 'right', visible: true },
-    // Elementos opcionales / ocultos por defecto
+    // 1. Nombre del producto arriba centrado en 1-2 líneas
+    { id: 'product', token: 'PRODUCTO', text: '', x: 1.2, y: 0.8, width: 35.1, height: 5.5, fontSize: 6.2, bold: true, align: 'center', visible: true },
+    // 2. Precio grande y centrado (calculado para caber bien hasta 3 dígitos, ej. $100)
+    { id: 'price', token: 'PRECIO', text: '', x: 1.2, y: 6.2, width: 35.1, height: 11.2, fontSize: 24, bold: true, align: 'center', visible: true },
+    // 3. Código QR a la izquierda abajo
+    { id: 'qr', token: 'QR', text: '', x: 1.5, y: 18.2, width: 9.2, height: 9.2, fontSize: 7, bold: true, align: 'center', visible: true },
+    // 4. Código de barras/numérico a la derecha, separado del QR y en 1 línea
+    { id: 'right-code', token: 'CODIGO', text: '', x: 12.0, y: 18.4, width: 24.3, height: 4.4, fontSize: 7.5, bold: true, align: 'left', visible: true },
+    // 5. Departamento debajo del código a la derecha, sin tocar el QR
+    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 12.0, y: 22.8, width: 24.3, height: 5.8, fontSize: 5.2, bold: true, align: 'left', visible: true },
+    // Elementos opcionales / ocultos por defecto (sin borde ni logo ni código duplicado)
+    { id: 'qr-code', token: 'CODIGO', text: '', x: 1.0, y: 24.4, width: 10.2, height: 4.4, fontSize: 5.2, bold: true, align: 'center', visible: false },
     { id: 'logo', token: 'LOGO', text: '', x: 20.2, y: 14.2, width: 16, height: 7.8, fontSize: 7, bold: true, align: 'center', visible: false },
     { id: 'barcode', token: 'BARCODE', text: '', x: 12.2, y: 15.2, width: 7, height: 10, fontSize: 5, bold: true, align: 'center', visible: false },
     { id: 'free-text', token: 'TEXTO', text: 'PRECIO SUJETO A CAMBIO', x: 1.2, y: 27.5, width: 35.1, height: 1.8, fontSize: 4, bold: false, align: 'center', visible: false },
@@ -91,6 +90,13 @@ const formatPrice = (value: number): string =>
     minimumFractionDigits: value % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   })}`;
+
+function getPriceFontSize(priceText: string, baseFontSize: number): number {
+  const digitsAndSign = priceText.replace(/[^0-9$]/g, '').length;
+  if (digitsAndSign >= 4) return Math.min(baseFontSize, 20); // ej. $100 o $999
+  if (digitsAndSign === 3) return Math.min(baseFontSize, 22); // ej. $10 o $99
+  return baseFontSize; // ej. $5 o $9
+}
 
 export function code128Svg(value: string): string {
   const clean = value.trim();
@@ -129,12 +135,14 @@ function valueForElement(element: LabelElement, data: LabelData): string {
 
 function elementHtml(element: LabelElement, data: LabelData): string {
   if (!element.visible) return '';
-  const style = `left:${element.x}mm;top:${element.y}mm;width:${element.width}mm;height:${element.height}mm;font-size:${element.fontSize}pt;font-weight:${element.bold ? 700 : 400};text-align:${element.align};`;
+  const rawText = valueForElement(element, data);
+  const computedFontSize = element.token === 'PRECIO' ? getPriceFontSize(rawText, element.fontSize) : element.fontSize;
+  const style = `left:${element.x}mm;top:${element.y}mm;width:${element.width}mm;height:${element.height}mm;font-size:${computedFontSize}pt;font-weight:${element.bold ? 700 : 400};text-align:${element.align};`;
   if (element.token === 'QR') return `<div class="label-element image-element" style="${style}"><img src="${escapeHtml(data.qrDataUrl)}" alt="QR" /></div>`;
   if (element.token === 'LOGO') return `<div class="label-element image-element" style="${style}">${data.logoDataUrl ? `<img src="${escapeHtml(data.logoDataUrl)}" alt="Logo" />` : ''}</div>`;
   if (element.token === 'BARCODE') return `<div class="label-element barcode-element" style="${style}">${code128Svg(data.code)}</div>`;
   const singleLineClass = element.id === 'right-code' || element.id === 'price' ? ' single-line' : '';
-  return `<div class="label-element${singleLineClass}" style="${style}">${escapeHtml(valueForElement(element, data))}</div>`;
+  return `<div class="label-element${singleLineClass}" style="${style}">${escapeHtml(rawText)}</div>`;
 }
 
 export function buildLabelPrintHtml(labels: LabelData[], layout: LabelLayout): string {
@@ -147,7 +155,7 @@ export function buildLabelPrintHtml(labels: LabelData[], layout: LabelLayout): s
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     html, body { margin: 0; padding: 0; background: #fff; color: #000; }
     body { width: ${layout.width}mm; font-family: Arial, Helvetica, sans-serif; }
-    .label-page { position: relative; width: ${layout.width}mm; height: ${layout.height}mm; overflow: hidden; background: #fff; color: #000; border-radius: ${layout.shape === 'rounded' ? '2mm' : '0'}; page-break-after: always; }
+    .label-page { position: relative; width: ${layout.width}mm; height: ${layout.height}mm; overflow: hidden; background: #fff; color: #000; border: none; border-radius: 0; page-break-after: always; }
     .label-page:last-child { page-break-after: auto; }
     .label-element { position: absolute; overflow: hidden; line-height: 1.05; white-space: pre-wrap; word-break: break-word; color: #000; display: flex; align-items: center; justify-content: flex-start; padding: 0; }
     .label-element.single-line { white-space: nowrap; word-break: normal; }
