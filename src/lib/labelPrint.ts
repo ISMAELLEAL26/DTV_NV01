@@ -45,19 +45,26 @@ export const LABEL_HEIGHT = 30;
 export const createDefaultLabelLayout = (): LabelLayout => ({
   width: LABEL_WIDTH,
   height: LABEL_HEIGHT,
-  marginTop: 1,
-  marginLeft: 1.5,
+  marginTop: 0.8,
+  marginLeft: 1.2,
   shape: 'square',
   elements: [
-    { id: 'product', token: 'PRODUCTO', text: '', x: 1.5, y: 1.0, width: 34.5, height: 6.2, fontSize: 7.5, bold: true, align: 'center', visible: true },
-    { id: 'price', token: 'PRECIO', text: '', x: 1.5, y: 7.4, width: 34.5, height: 7.5, fontSize: 15, bold: true, align: 'center', visible: true },
-    { id: 'qr', token: 'QR', text: '', x: 1.8, y: 15.4, width: 10.2, height: 10.2, fontSize: 7, bold: true, align: 'center', visible: true },
-    { id: 'qr-code', token: 'CODIGO', text: '', x: 1.5, y: 25.8, width: 11.0, height: 3.0, fontSize: 5.5, bold: true, align: 'center', visible: true },
-    { id: 'right-code', token: 'CODIGO', text: '', x: 13.5, y: 16.5, width: 22.5, height: 5.2, fontSize: 9, bold: true, align: 'right', visible: true },
-    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 13.5, y: 22.2, width: 22.5, height: 6.6, fontSize: 6, bold: true, align: 'right', visible: true },
+    // 1. Nombre del producto arriba en 1-2 líneas compactas
+    { id: 'product', token: 'PRODUCTO', text: '', x: 1.2, y: 0.8, width: 35.1, height: 5.2, fontSize: 6.5, bold: true, align: 'center', visible: true },
+    // 2. Precio grande y protagonista al centro para verse a simple vista
+    { id: 'price', token: 'PRECIO', text: '', x: 1.2, y: 6.0, width: 35.1, height: 8.8, fontSize: 21, bold: true, align: 'center', visible: true },
+    // 3. QR compacto a la izquierda
+    { id: 'qr', token: 'QR', text: '', x: 1.5, y: 15.4, width: 8.6, height: 8.6, fontSize: 7, bold: true, align: 'center', visible: true },
+    // 4. Código corto/numérico debajo del QR con separación limpia
+    { id: 'qr-code', token: 'CODIGO', text: '', x: 1.0, y: 24.4, width: 10.2, height: 4.4, fontSize: 5.2, bold: true, align: 'center', visible: true },
+    // 5. Código completo en una sola línea a la derecha
+    { id: 'right-code', token: 'CODIGO', text: '', x: 11.2, y: 15.8, width: 25.1, height: 4.2, fontSize: 7.5, bold: true, align: 'right', visible: true },
+    // 6. Departamento limpio abajo a la derecha
+    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 11.2, y: 20.4, width: 25.1, height: 8.4, fontSize: 5.8, bold: true, align: 'right', visible: true },
+    // Elementos opcionales / ocultos por defecto
     { id: 'logo', token: 'LOGO', text: '', x: 20.2, y: 14.2, width: 16, height: 7.8, fontSize: 7, bold: true, align: 'center', visible: false },
     { id: 'barcode', token: 'BARCODE', text: '', x: 12.2, y: 15.2, width: 7, height: 10, fontSize: 5, bold: true, align: 'center', visible: false },
-    { id: 'free-text', token: 'TEXTO', text: 'PRECIO SUJETO A CAMBIO', x: 1.5, y: 27.5, width: 34.5, height: 1.8, fontSize: 4, bold: false, align: 'center', visible: false },
+    { id: 'free-text', token: 'TEXTO', text: 'PRECIO SUJETO A CAMBIO', x: 1.2, y: 27.5, width: 35.1, height: 1.8, fontSize: 4, bold: false, align: 'center', visible: false },
   ],
 });
 
@@ -126,7 +133,8 @@ function elementHtml(element: LabelElement, data: LabelData): string {
   if (element.token === 'QR') return `<div class="label-element image-element" style="${style}"><img src="${escapeHtml(data.qrDataUrl)}" alt="QR" /></div>`;
   if (element.token === 'LOGO') return `<div class="label-element image-element" style="${style}">${data.logoDataUrl ? `<img src="${escapeHtml(data.logoDataUrl)}" alt="Logo" />` : ''}</div>`;
   if (element.token === 'BARCODE') return `<div class="label-element barcode-element" style="${style}">${code128Svg(data.code)}</div>`;
-  return `<div class="label-element" style="${style}">${escapeHtml(valueForElement(element, data))}</div>`;
+  const singleLineClass = element.id === 'right-code' || element.id === 'price' ? ' single-line' : '';
+  return `<div class="label-element${singleLineClass}" style="${style}">${escapeHtml(valueForElement(element, data))}</div>`;
 }
 
 export function buildLabelPrintHtml(labels: LabelData[], layout: LabelLayout): string {
@@ -142,6 +150,7 @@ export function buildLabelPrintHtml(labels: LabelData[], layout: LabelLayout): s
     .label-page { position: relative; width: ${layout.width}mm; height: ${layout.height}mm; overflow: hidden; background: #fff; color: #000; border-radius: ${layout.shape === 'rounded' ? '2mm' : '0'}; page-break-after: always; }
     .label-page:last-child { page-break-after: auto; }
     .label-element { position: absolute; overflow: hidden; line-height: 1.05; white-space: pre-wrap; word-break: break-word; color: #000; display: flex; align-items: center; justify-content: flex-start; padding: 0; }
+    .label-element.single-line { white-space: nowrap; word-break: normal; }
     .label-element[style*="text-align:center"] { justify-content: center; }
     .label-element[style*="text-align:right"] { justify-content: flex-end; }
     .image-element img { display: block; width: 100%; height: 100%; object-fit: contain; filter: grayscale(1) contrast(2); }
