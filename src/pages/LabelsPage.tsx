@@ -12,7 +12,7 @@ import BarcodeScanner from '@/components/BarcodeScanner';
 import LabelDesignerModal from '@/components/LabelDesignerModal';
 import { printLabels, getProductCode, type LabelData } from '@/lib/labelPrint';
 import { LABEL_PRINTER_STORAGE_KEY, defaultLabelTemplates, loadLabelTemplates, saveLabelTemplates, type LabelTemplate } from '@/lib/labelTemplates';
-import { Camera, FileSpreadsheet, Image as ImageIcon, PackageSearch, Plus, RefreshCw, Save, ScanLine, Trash2, X } from 'lucide-react';
+import { Camera, FileSpreadsheet, Image as ImageIcon, PackageSearch, Plus, Printer, RefreshCw, Save, ScanLine, Trash2, X } from 'lucide-react';
 
 interface QueueItem {
   product: Product;
@@ -150,6 +150,7 @@ function LabelsPageContent() {
   const [loading, setLoading] = useState(true);
   const [loadingBatch, setLoadingBatch] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const productInputRef = useRef<HTMLInputElement>(null);
@@ -396,6 +397,52 @@ function LabelsPageContent() {
     if (activeTemplateId === templateId) setActiveTemplateId(next[0]?.id ?? '');
   };
 
+  const markBatchPrintedIfSelected = async () => {
+    if (!selectedBatchId) return;
+    await supabase
+      .from('label_print_batches')
+      .update({ status: 'printed', printed_at: new Date().toISOString() })
+      .eq('id', selectedBatchId);
+    setBatches((current) =>
+      current.map((batch) =>
+        batch.id === selectedBatchId ? { ...batch, status: 'printed', printed_at: new Date().toISOString() } : batch
+      )
+    );
+  };
+
+  const handlePrint = async () => {
+    setError(null);
+    setMessage(null);
+    if (queue.length === 0) { setError('La cola está vacía. Agrega productos o carga un lote guardado.'); return; }
+    if (isElectron) {
+      if (printers.length === 0) { setError('No hay una impresora disponible. Conecta la impresora de etiquetas y actualiza la lista.'); return; }
+      if (!printerName || !printers.some((printer) => printer.name === printerName)) {
+        setPrinterError(`Selecciona una impresora de etiquetas conectada antes de imprimir${printerName ? `: ${printerName}` : '.'}`);
+        return;
+      }
+    }
+    if (!activeTemplate) { setError('Selecciona una plantilla válida.'); return; }
+    setPrinting(true);
+    try {
+      const logoDataUrl = (() => {
+        try { return window.localStorage.getItem('pos_label_logo_data_url') ?? ''; } catch { return ''; }
+      })();
+      const labels: LabelData[] = [];
+      for (const item of queue) {
+        const qrDataUrl = await QRCode.toDataURL(getProductCode(item.product), { margin: 0, width: 220, color: { dark: '#000000', light: '#ffffff' } });
+        const department = departmentNames[item.product.department ?? ''] ?? item.product.department ?? item.product.category?.name ?? '';
+        for (let copy = 0; copy < item.quantity; copy++) labels.push(buildLabelData(item.product, Number(item.product.sale_price), department, qrDataUrl, logoDataUrl));
+      }
+      await printLabels(labels, activeTemplate.layout, printerName);
+      await markBatchPrintedIfSelected();
+      setMessage(`${totalLabels} etiqueta(s) enviadas a la impresora.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudieron imprimir las etiquetas.');
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   const handleExportExcel = async () => {
     setError(null);
     setMessage(null);
@@ -404,7 +451,7 @@ function LabelsPageContent() {
       return;
     }
 
-    setPrinting(true);
+    setExporting(true);
     try {
       const employeeName = (
         auth.profile?.full_name ||
@@ -464,29 +511,18 @@ function LabelsPageContent() {
       XLSX.utils.book_append_sheet(workbook, worksheet, 'ETIQUETAS');
       XLSX.writeFile(workbook, 'ETIQUETAS_DTB.xlsx');
 
-      if (selectedBatchId) {
-        await supabase
-          .from('label_print_batches')
-          .update({ status: 'printed', printed_at: new Date().toISOString() })
-          .eq('id', selectedBatchId);
-        setBatches((current) =>
-          current.map((batch) =>
-            batch.id === selectedBatchId ? { ...batch, status: 'printed', printed_at: new Date().toISOString() } : batch
-          )
-        );
-      }
-
-      setMessage(`Archivo ETIQUETAS_DTB.xlsx generado con ${rows.length} etiqueta(s) listo para BarTender.`);
+      await markBatchPrintedIfSelected();
+      setMessage(`Plantilla ETIQUETAS_DTB.xlsx descargada con ${rows.length} etiqueta(s).`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo generar el archivo ETIQUETAS_DTB.xlsx.');
+      setError(cause instanceof Error ? cause.message : 'No se pudo descargar la plantilla ETIQUETAS_DTB.xlsx.');
     } finally {
-      setPrinting(false);
+      setExporting(false);
     }
   };
 
   return (
     <div className="p-4 lg:p-6">
-      <PageHeader title="Etiquetas" subtitle="Usa el mismo control para lector USB, búsqueda o cámara. Guarda lotes y genera ETIQUETAS_DTB.xlsx para BarTender." />
+      <PageHeader title="Etiquetas" subtitle="Usa el mismo control para lector USB, búsqueda o cámara. Imprime directo o descarga la plantilla." />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,1fr)]">
         <div className="space-y-5">
@@ -567,15 +603,22 @@ function LabelsPageContent() {
           </Card>
 
           {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}{message && <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div>}
-          <Button className="w-full" onClick={() => void handleExportExcel()} disabled={printing || queue.length === 0}>
-            <FileSpreadsheet size={16} />
-            {printing ? 'Generando Excel...' : `Generar ETIQUETAS_DTB (${totalLabels} etiqueta(s))`}
-          </Button>
+
+          <div className="space-y-2">
+            <Button className="w-full" onClick={() => void handlePrint()} disabled={printing || exporting || queue.length === 0}>
+              <Printer size={16} />
+              {printing ? 'Imprimiendo...' : `Imprimir ${totalLabels} etiqueta(s)`}
+            </Button>
+            <Button className="w-full" variant="secondary" onClick={() => void handleExportExcel()} disabled={printing || exporting || queue.length === 0}>
+              <FileSpreadsheet size={16} />
+              {exporting ? 'Descargando plantilla...' : 'Descargar plantilla'}
+            </Button>
+          </div>
         </div>
       </div>
 
       <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onDetect={(code) => { void handleProductInput(code); }} title="Escanear producto para etiquetas" />
-      <LabelDesignerModal open={designerOpen} onClose={() => setDesignerOpen(false)} product={queue[0]?.product ?? null} template={activeTemplate ?? { id: 'fallback', name: 'Estándar 37.5 × 30 mm', layout: defaultLabelTemplates()[0].layout, builtin: true }} onSaveTemplate={handleSaveTemplate} departmentNames={departmentNames} />
+      <LabelDesignerModal open={designerOpen} onClose={() => setDesignerOpen(false)} product={queue[0]?.product ?? null} template={activeTemplate ?? { id: 'fallback', name: 'Estándar 37.5 × 30 mm (Sin logo)', layout: defaultLabelTemplates()[0].layout, builtin: true }} onSaveTemplate={handleSaveTemplate} departmentNames={departmentNames} />
     </div>
   );
 }
