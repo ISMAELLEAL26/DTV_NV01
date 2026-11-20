@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import QRCode from 'qrcode';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
@@ -11,7 +12,7 @@ import BarcodeScanner from '@/components/BarcodeScanner';
 import LabelDesignerModal from '@/components/LabelDesignerModal';
 import { printLabels, getProductCode, type LabelData } from '@/lib/labelPrint';
 import { LABEL_PRINTER_STORAGE_KEY, defaultLabelTemplates, loadLabelTemplates, saveLabelTemplates, type LabelTemplate } from '@/lib/labelTemplates';
-import { Camera, Image as ImageIcon, PackageSearch, Plus, RefreshCw, Save, ScanLine, Trash2, X } from 'lucide-react';
+import { Camera, FileSpreadsheet, Image as ImageIcon, PackageSearch, Plus, RefreshCw, Save, ScanLine, Trash2, X } from 'lucide-react';
 
 interface QueueItem {
   product: Product;
@@ -105,6 +106,17 @@ function formatBatchDate(value: string): string {
   return new Date(value).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
 }
 
+function formatElaborationDateTime(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const day = pad(date.getDate());
+  const month = pad(date.getMonth() + 1);
+  const year = date.getFullYear();
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  const seconds = pad(date.getSeconds());
+  return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+}
+
 export default function LabelsPage() {
   const { hasPermission } = useAuth();
   if (!hasPermission('products')) {
@@ -114,7 +126,13 @@ export default function LabelsPage() {
 }
 
 function LabelsPageContent() {
-  const { currentBranch } = useAuth();
+  const auth = useAuth() as {
+    currentBranch?: { id?: string | null; name?: string | null } | null;
+    user?: { name?: string | null; full_name?: string | null; email?: string | null } | null;
+    profile?: { name?: string | null; full_name?: string | null } | null;
+  };
+  const { currentBranch } = auth;
+
   const [products, setProducts] = useState<Product[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -168,8 +186,6 @@ function LabelsPageContent() {
     setBatches((data as SavedBatch[]) ?? []);
   }, []);
 
-  // Refresh the batch list whenever any user of this branch saves or prints a
-  // batch from another device.
   useEffect(() => {
     const channel = supabase
       .channel('label-batches-live')
@@ -220,7 +236,7 @@ function LabelsPageContent() {
       if (saved && !list.some((printer) => printer.name === saved)) {
         setPrinterError(`La impresora de etiquetas guardada no está conectada: ${saved}. Elige otra impresora.`);
       }
-      setPrinterName((current) => current || saved || list.find((printer) => printer.isDefault)?.name || list[0].name || '');
+      setPrinterName((current) => current || saved || list.find((printer) => printer.isDefault)?.name || list[0]?.name || '');
     } catch {
       setPrinterError('No se pudieron detectar las impresoras instaladas.');
     }
@@ -380,37 +396,89 @@ function LabelsPageContent() {
     if (activeTemplateId === templateId) setActiveTemplateId(next[0]?.id ?? '');
   };
 
-  const handlePrint = async () => {
+  const handleExportExcel = async () => {
     setError(null);
     setMessage(null);
-    if (queue.length === 0) { setError('La cola está vacía. Agrega productos o carga un lote guardado.'); return; }
-    if (isElectron) {
-      if (printers.length === 0) { setError('No hay una impresora disponible. Conecta la impresora de etiquetas y actualiza la lista.'); return; }
-      if (!printerName || !printers.some((printer) => printer.name === printerName)) {
-        setPrinterError(`Selecciona una impresora de etiquetas conectada antes de imprimir${printerName ? `: ${printerName}` : '.'}`);
-        return;
-      }
+    if (queue.length === 0) {
+      setError('La cola está vacía. Agrega productos o carga un lote guardado.');
+      return;
     }
-    if (!activeTemplate) { setError('Selecciona una plantilla válida.'); return; }
+
     setPrinting(true);
     try {
-      const logoDataUrl = (() => {
-        try { return window.localStorage.getItem('pos_label_logo_data_url') ?? ''; } catch { return ''; }
-      })();
-      const labels: LabelData[] = [];
+      const employeeName = (
+        auth.profile?.full_name ||
+        auth.profile?.name ||
+        auth.user?.full_name ||
+        auth.user?.name ||
+        'ISMAEL LEAL'
+      ).toUpperCase();
+      const timestamp = formatElaborationDateTime(new Date());
+
+      const rows: Array<{
+        CODIGO: string;
+        PRODUCTO: string;
+        PRECIO: string;
+        DEPARTAMENTO: string;
+        EMPLEADO: string;
+        'FECHA Y HORA DE ELABORACION': string;
+      }> = [];
+
       for (const item of queue) {
-        const qrDataUrl = await QRCode.toDataURL(getProductCode(item.product), { margin: 0, width: 220, color: { dark: '#000000', light: '#ffffff' } });
-        const department = departmentNames[item.product.department ?? ''] ?? item.product.department ?? item.product.category?.name ?? '';
-        for (let copy = 0; copy < item.quantity; copy++) labels.push(buildLabelData(item.product, Number(item.product.sale_price), department, qrDataUrl, logoDataUrl));
+        const code = String(getProductCode(item.product) ?? '').trim();
+        const name = String(item.product.name ?? '').toUpperCase();
+        const priceFormatted = `$${Number(item.product.sale_price ?? 0).toFixed(2)}`;
+        const dept = String(
+          departmentNames[item.product.department ?? ''] ??
+          item.product.department ??
+          item.product.category?.name ??
+          'SIN DEPARTAMENTO'
+        ).toUpperCase();
+
+        const copies = Math.max(1, Number(item.quantity) || 1);
+        for (let copy = 0; copy < copies; copy++) {
+          rows.push({
+            CODIGO: code,
+            PRODUCTO: name,
+            PRECIO: priceFormatted,
+            DEPARTAMENTO: dept,
+            EMPLEADO: employeeName,
+            'FECHA Y HORA DE ELABORACION': timestamp,
+          });
+        }
       }
-      await printLabels(labels, activeTemplate.layout, printerName);
+
+      const worksheet = XLSX.utils.json_to_sheet(rows, {
+        header: ['CODIGO', 'PRODUCTO', 'PRECIO', 'DEPARTAMENTO', 'EMPLEADO', 'FECHA Y HORA DE ELABORACION'],
+      });
+      worksheet['!cols'] = [
+        { wch: 20 },
+        { wch: 42 },
+        { wch: 14 },
+        { wch: 32 },
+        { wch: 22 },
+        { wch: 26 },
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'ETIQUETAS');
+      XLSX.writeFile(workbook, 'ETIQUETAS_DTB.xlsx');
+
       if (selectedBatchId) {
-        await supabase.from('label_print_batches').update({ status: 'printed', printed_at: new Date().toISOString() }).eq('id', selectedBatchId);
-        setBatches((current) => current.map((batch) => batch.id === selectedBatchId ? { ...batch, status: 'printed', printed_at: new Date().toISOString() } : batch));
+        await supabase
+          .from('label_print_batches')
+          .update({ status: 'printed', printed_at: new Date().toISOString() })
+          .eq('id', selectedBatchId);
+        setBatches((current) =>
+          current.map((batch) =>
+            batch.id === selectedBatchId ? { ...batch, status: 'printed', printed_at: new Date().toISOString() } : batch
+          )
+        );
       }
-      setMessage(`${totalLabels} etiqueta(s) enviadas a la impresora.`);
+
+      setMessage(`Archivo ETIQUETAS_DTB.xlsx generado con ${rows.length} etiqueta(s) listo para BarTender.`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron imprimir las etiquetas.');
+      setError(cause instanceof Error ? cause.message : 'No se pudo generar el archivo ETIQUETAS_DTB.xlsx.');
     } finally {
       setPrinting(false);
     }
@@ -418,7 +486,7 @@ function LabelsPageContent() {
 
   return (
     <div className="p-4 lg:p-6">
-      <PageHeader title="Etiquetas" subtitle="Usa el mismo control para lector USB, búsqueda o cámara. Guarda lotes en el celular y recupéralos aquí para imprimir." />
+      <PageHeader title="Etiquetas" subtitle="Usa el mismo control para lector USB, búsqueda o cámara. Guarda lotes y genera ETIQUETAS_DTB.xlsx para BarTender." />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,1fr)]">
         <div className="space-y-5">
@@ -499,7 +567,10 @@ function LabelsPageContent() {
           </Card>
 
           {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}{message && <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div>}
-          <Button className="w-full" onClick={() => void handlePrint()} disabled={printing || queue.length === 0}>{printing ? 'Imprimiendo...' : `Imprimir ${totalLabels} etiqueta(s)`}</Button>
+          <Button className="w-full" onClick={() => void handleExportExcel()} disabled={printing || queue.length === 0}>
+            <FileSpreadsheet size={16} />
+            {printing ? 'Generando Excel...' : `Generar ETIQUETAS_DTB (${totalLabels} etiqueta(s))`}
+          </Button>
         </div>
       </div>
 
