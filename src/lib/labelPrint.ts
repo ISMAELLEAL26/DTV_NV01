@@ -46,18 +46,18 @@ export const createDefaultLabelLayout = (): LabelLayout => ({
   width: LABEL_WIDTH,
   height: LABEL_HEIGHT,
   marginTop: 1,
-  marginLeft: 1.3,
+  marginLeft: 1.5,
   shape: 'square',
   elements: [
-    { id: 'product', token: 'PRODUCTO', text: '', x: 1.3, y: 1.2, width: 34.9, height: 5.8, fontSize: 8, bold: true, align: 'center', visible: true },
-    { id: 'price', token: 'PRECIO', text: '', x: 1.3, y: 7.3, width: 34.9, height: 7, fontSize: 19, bold: true, align: 'center', visible: true },
-    { id: 'qr', token: 'QR', text: '', x: 1.3, y: 15, width: 10.5, height: 10.5, fontSize: 7, bold: true, align: 'center', visible: true },
-    { id: 'qr-code', token: 'CODIGO', text: '', x: 1.3, y: 25.6, width: 10.5, height: 3, fontSize: 6, bold: true, align: 'center', visible: true },
-    { id: 'logo', token: 'LOGO', text: '', x: 20.2, y: 14.2, width: 16, height: 7.8, fontSize: 7, bold: true, align: 'center', visible: true },
-    { id: 'right-code', token: 'CODIGO', text: '', x: 20.2, y: 21.9, width: 16, height: 4.5, fontSize: 11, bold: true, align: 'center', visible: true },
-    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 18.2, y: 26.2, width: 18, height: 2.8, fontSize: 6.5, bold: true, align: 'right', visible: true },
+    { id: 'product', token: 'PRODUCTO', text: '', x: 1.5, y: 1.0, width: 34.5, height: 6.2, fontSize: 7.5, bold: true, align: 'center', visible: true },
+    { id: 'price', token: 'PRECIO', text: '', x: 1.5, y: 7.4, width: 34.5, height: 7.5, fontSize: 15, bold: true, align: 'center', visible: true },
+    { id: 'qr', token: 'QR', text: '', x: 1.8, y: 15.4, width: 10.2, height: 10.2, fontSize: 7, bold: true, align: 'center', visible: true },
+    { id: 'qr-code', token: 'CODIGO', text: '', x: 1.5, y: 25.8, width: 11.0, height: 3.0, fontSize: 5.5, bold: true, align: 'center', visible: true },
+    { id: 'right-code', token: 'CODIGO', text: '', x: 13.5, y: 16.5, width: 22.5, height: 5.2, fontSize: 9, bold: true, align: 'right', visible: true },
+    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 13.5, y: 22.2, width: 22.5, height: 6.6, fontSize: 6, bold: true, align: 'right', visible: true },
+    { id: 'logo', token: 'LOGO', text: '', x: 20.2, y: 14.2, width: 16, height: 7.8, fontSize: 7, bold: true, align: 'center', visible: false },
     { id: 'barcode', token: 'BARCODE', text: '', x: 12.2, y: 15.2, width: 7, height: 10, fontSize: 5, bold: true, align: 'center', visible: false },
-    { id: 'free-text', token: 'TEXTO', text: 'PRECIO SUJETO A CAMBIO', x: 1.3, y: 28, width: 34.9, height: 1.2, fontSize: 3.5, bold: false, align: 'center', visible: false },
+    { id: 'free-text', token: 'TEXTO', text: 'PRECIO SUJETO A CAMBIO', x: 1.5, y: 27.5, width: 34.5, height: 1.8, fontSize: 4, bold: false, align: 'center', visible: false },
   ],
 });
 
@@ -79,7 +79,11 @@ const escapeHtml = (value: string): string => value.replace(/[&<>'"]/g, (charact
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
 }[character] ?? character));
 
-const formatPrice = (value: number): string => `$${value.toLocaleString('es-MX', { minimumFractionDigits: value % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`;
+const formatPrice = (value: number): string =>
+  `$${value.toLocaleString('es-MX', {
+    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 export function code128Svg(value: string): string {
   const clean = value.trim();
@@ -126,15 +130,18 @@ function elementHtml(element: LabelElement, data: LabelData): string {
 }
 
 export function buildLabelPrintHtml(labels: LabelData[], layout: LabelLayout): string {
-  const pages = labels.map((data) => `<section class="label-page">${layout.elements.map((element) => elementHtml(element, data)).join('')}</section>`).join('');
+  const pages = labels
+    .map((data) => `<section class="label-page">${layout.elements.map((element) => elementHtml(element, data)).join('')}</section>`)
+    .join('');
+
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>
     @page { size: ${layout.width}mm ${layout.height}mm; margin: 0; }
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     html, body { margin: 0; padding: 0; background: #fff; color: #000; }
     body { width: ${layout.width}mm; font-family: Arial, Helvetica, sans-serif; }
-    .label-page { position: relative; width: ${layout.width}mm; height: ${layout.height}mm; overflow: hidden; background: #fff; color: #000; border-radius: ${layout.shape === 'rounded' ? '3.2mm' : '0'}; page-break-after: always; }
+    .label-page { position: relative; width: ${layout.width}mm; height: ${layout.height}mm; overflow: hidden; background: #fff; color: #000; border-radius: ${layout.shape === 'rounded' ? '2mm' : '0'}; page-break-after: always; }
     .label-page:last-child { page-break-after: auto; }
-    .label-element { position: absolute; overflow: hidden; line-height: 1.05; white-space: pre-wrap; color: #000; display: flex; align-items: center; justify-content: flex-start; padding: 0; }
+    .label-element { position: absolute; overflow: hidden; line-height: 1.05; white-space: pre-wrap; word-break: break-word; color: #000; display: flex; align-items: center; justify-content: flex-start; padding: 0; }
     .label-element[style*="text-align:center"] { justify-content: center; }
     .label-element[style*="text-align:right"] { justify-content: flex-end; }
     .image-element img { display: block; width: 100%; height: 100%; object-fit: contain; filter: grayscale(1) contrast(2); }
