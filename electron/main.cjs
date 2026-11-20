@@ -72,29 +72,56 @@ async function printHiddenHtml(html, options, waitForImages) {
       nodeIntegration: false,
     },
   });
-  const printableHtml = waitForImages ? html.replace(/<script[\s\S]*?<\/script>/gi, '') : html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  const printableHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
   const url = `data:text/html;charset=UTF-8,${encodeURIComponent(printableHtml)}`;
 
   try {
     await new Promise((resolve, reject) => {
       printWindow.webContents.once('did-finish-load', resolve);
-      printWindow.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => reject(new Error(`${errorCode}: ${errorDescription}`)));
+      printWindow.webContents.once('did-fail-load', (_event, errorCode, errorDescription) =>
+        reject(new Error(`${errorCode}: ${errorDescription}`))
+      );
       printWindow.loadURL(url);
     });
 
     if (waitForImages) {
-      await printWindow.webContents.executeJavaScript(`Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`);
+      await printWindow.webContents.executeJavaScript(
+        `Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`
+      );
     }
     await new Promise((resolve) => setTimeout(resolve, waitForImages ? 250 : 300));
 
     await new Promise((resolve, reject) => {
+      const widthMm = Number(options?.width);
+      const heightMm = Number(options?.height);
+      const hasCustomLabelSize =
+        waitForImages &&
+        Number.isFinite(widthMm) &&
+        Number.isFinite(heightMm) &&
+        widthMm > 0 &&
+        heightMm > 0;
+
       const printOptions = {
         silent: true,
         printBackground: true,
-        ...(waitForImages ? { margins: { marginType: 'none' } } : {}),
+        ...(waitForImages
+          ? {
+              margins: { marginType: 'none' },
+              ...(hasCustomLabelSize
+                ? {
+                    pageSize: {
+                      width: Math.round(widthMm * 1000),
+                      height: Math.round(heightMm * 1000),
+                    },
+                  }
+                : {}),
+            }
+          : {}),
       };
+
       const printerName = typeof options?.printerName === 'string' ? options.printerName.trim() : '';
       if (printerName) printOptions.deviceName = printerName;
+
       printWindow.webContents.print(printOptions, (success, failureReason) => {
         if (success) resolve();
         else reject(new Error(failureReason || 'No se pudo enviar el trabajo a la impresora.'));
@@ -136,7 +163,9 @@ function createMainWindow() {
   if (isDev && process.env.VITE_DEV_SERVER_URL) mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   else mainWindow.loadFile(getIndexHtmlPath());
 
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(() => {
