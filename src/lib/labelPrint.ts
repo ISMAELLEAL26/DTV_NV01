@@ -45,25 +45,25 @@ export const LABEL_HEIGHT = 30;
 export const createDefaultLabelLayout = (): LabelLayout => ({
   width: LABEL_WIDTH,
   height: LABEL_HEIGHT,
-  marginTop: 0.8,
-  marginLeft: 1.2,
+  marginTop: 0.6,
+  marginLeft: 1.0,
   shape: 'square',
   elements: [
-    // 1. Nombre del producto arriba centrado en 1-2 líneas
-    { id: 'product', token: 'PRODUCTO', text: '', x: 1.2, y: 0.8, width: 35.1, height: 5.5, fontSize: 6.2, bold: true, align: 'center', visible: true },
-    // 2. Precio grande y centrado (calculado para caber bien hasta 3 dígitos, ej. $100)
-    { id: 'price', token: 'PRECIO', text: '', x: 1.2, y: 6.2, width: 35.1, height: 11.2, fontSize: 24, bold: true, align: 'center', visible: true },
-    // 3. Código QR a la izquierda abajo
-    { id: 'qr', token: 'QR', text: '', x: 1.5, y: 18.2, width: 9.2, height: 9.2, fontSize: 7, bold: true, align: 'center', visible: true },
-    // 4. Código de barras/numérico a la derecha, separado del QR y en 1 línea
-    { id: 'right-code', token: 'CODIGO', text: '', x: 12.0, y: 18.4, width: 24.3, height: 4.4, fontSize: 7.5, bold: true, align: 'left', visible: true },
-    // 5. Departamento debajo del código a la derecha, sin tocar el QR
-    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 12.0, y: 22.8, width: 24.3, height: 5.8, fontSize: 5.2, bold: true, align: 'left', visible: true },
-    // Elementos opcionales / ocultos por defecto (sin borde ni logo ni código duplicado)
+    // 1. Nombre del producto arriba en 1-2 líneas compactas
+    { id: 'product', token: 'PRODUCTO', text: '', x: 1.0, y: 0.6, width: 35.5, height: 5.2, fontSize: 6.2, bold: true, align: 'center', visible: true },
+    // 2. Precio grande y protagonista al centro
+    { id: 'price', token: 'PRECIO', text: '', x: 1.0, y: 5.8, width: 35.5, height: 13.4, fontSize: 28, bold: true, align: 'center', visible: true },
+    // 3. QR pequeño abajo a la izquierda, alineado con el alto de los dos textos de la derecha
+    { id: 'qr', token: 'QR', text: '', x: 1.4, y: 20.4, width: 7.4, height: 7.4, fontSize: 7, bold: true, align: 'center', visible: true },
+    // 4. Código numérico a la derecha, al par de la parte superior del QR
+    { id: 'right-code', token: 'CODIGO', text: '', x: 9.8, y: 20.3, width: 26.7, height: 3.8, fontSize: 7.2, bold: true, align: 'left', visible: true },
+    // 5. Departamento debajo del código a la derecha, en una línea limpia
+    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 9.8, y: 24.1, width: 26.7, height: 3.8, fontSize: 5.0, bold: true, align: 'left', visible: true },
+    // Elementos ocultos por defecto
     { id: 'qr-code', token: 'CODIGO', text: '', x: 1.0, y: 24.4, width: 10.2, height: 4.4, fontSize: 5.2, bold: true, align: 'center', visible: false },
     { id: 'logo', token: 'LOGO', text: '', x: 20.2, y: 14.2, width: 16, height: 7.8, fontSize: 7, bold: true, align: 'center', visible: false },
     { id: 'barcode', token: 'BARCODE', text: '', x: 12.2, y: 15.2, width: 7, height: 10, fontSize: 5, bold: true, align: 'center', visible: false },
-    { id: 'free-text', token: 'TEXTO', text: 'PRECIO SUJETO A CAMBIO', x: 1.2, y: 27.5, width: 35.1, height: 1.8, fontSize: 4, bold: false, align: 'center', visible: false },
+    { id: 'free-text', token: 'TEXTO', text: 'PRECIO SUJETO A CAMBIO', x: 1.0, y: 27.5, width: 35.5, height: 1.8, fontSize: 4, bold: false, align: 'center', visible: false },
   ],
 });
 
@@ -91,11 +91,13 @@ const formatPrice = (value: number): string =>
     maximumFractionDigits: 2,
   })}`;
 
-function getPriceFontSize(priceText: string, baseFontSize: number): number {
+function getPriceSizeMm(priceText: string, layoutHeight: number): number {
   const digitsAndSign = priceText.replace(/[^0-9$]/g, '').length;
-  if (digitsAndSign >= 4) return Math.min(baseFontSize, 20); // ej. $100 o $999
-  if (digitsAndSign === 3) return Math.min(baseFontSize, 22); // ej. $10 o $99
-  return baseFontSize; // ej. $5 o $9
+  // Escala en milímetros dentro del alto disponible (~13.4mm) para que resalte sin salirse con 3 dígitos ($100)
+  const maxHeightMm = Math.min(13.2, layoutHeight * 0.44);
+  if (digitsAndSign >= 4) return Number((maxHeightMm * 0.78).toFixed(1)); // ej. $100
+  if (digitsAndSign === 3) return Number((maxHeightMm * 0.90).toFixed(1)); // ej. $10 - $99
+  return Number(maxHeightMm.toFixed(1)); // ej. $5 - $9
 }
 
 export function code128Svg(value: string): string {
@@ -133,21 +135,24 @@ function valueForElement(element: LabelElement, data: LabelData): string {
   }
 }
 
-function elementHtml(element: LabelElement, data: LabelData): string {
+function elementHtml(element: LabelElement, data: LabelData, layoutHeight: number): string {
   if (!element.visible) return '';
   const rawText = valueForElement(element, data);
-  const computedFontSize = element.token === 'PRECIO' ? getPriceFontSize(rawText, element.fontSize) : element.fontSize;
-  const style = `left:${element.x}mm;top:${element.y}mm;width:${element.width}mm;height:${element.height}mm;font-size:${computedFontSize}pt;font-weight:${element.bold ? 700 : 400};text-align:${element.align};`;
+  const fontSizeCss =
+    element.token === 'PRECIO'
+      ? `${getPriceSizeMm(rawText, layoutHeight)}mm`
+      : `${element.fontSize}pt`;
+  const style = `left:${element.x}mm;top:${element.y}mm;width:${element.width}mm;height:${element.height}mm;font-size:${fontSizeCss};font-weight:${element.bold ? 700 : 400};text-align:${element.align};`;
   if (element.token === 'QR') return `<div class="label-element image-element" style="${style}"><img src="${escapeHtml(data.qrDataUrl)}" alt="QR" /></div>`;
   if (element.token === 'LOGO') return `<div class="label-element image-element" style="${style}">${data.logoDataUrl ? `<img src="${escapeHtml(data.logoDataUrl)}" alt="Logo" />` : ''}</div>`;
   if (element.token === 'BARCODE') return `<div class="label-element barcode-element" style="${style}">${code128Svg(data.code)}</div>`;
-  const singleLineClass = element.id === 'right-code' || element.id === 'price' ? ' single-line' : '';
+  const singleLineClass = element.id === 'right-code' || element.id === 'price' || element.id === 'department' ? ' single-line' : '';
   return `<div class="label-element${singleLineClass}" style="${style}">${escapeHtml(rawText)}</div>`;
 }
 
 export function buildLabelPrintHtml(labels: LabelData[], layout: LabelLayout): string {
   const pages = labels
-    .map((data) => `<section class="label-page">${layout.elements.map((element) => elementHtml(element, data)).join('')}</section>`)
+    .map((data) => `<section class="label-page">${layout.elements.map((element) => elementHtml(element, data, layout.height)).join('')}</section>`)
     .join('');
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>
