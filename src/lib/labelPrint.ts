@@ -50,16 +50,15 @@ export const createDefaultLabelLayout = (): LabelLayout => ({
   shape: 'square',
   elements: [
     // 1. Nombre del producto arriba en 1-2 líneas compactas
-    { id: 'product', token: 'PRODUCTO', text: '', x: 1.0, y: 0.6, width: 35.5, height: 5.2, fontSize: 6.2, bold: true, align: 'center', visible: true },
-    // 2. Precio grande y protagonista al centro
-    { id: 'price', token: 'PRECIO', text: '', x: 1.0, y: 5.8, width: 35.5, height: 13.4, fontSize: 28, bold: true, align: 'center', visible: true },
-    // 3. QR pequeño abajo a la izquierda, alineado con el alto de los dos textos de la derecha
-    { id: 'qr', token: 'QR', text: '', x: 1.4, y: 20.4, width: 7.4, height: 7.4, fontSize: 7, bold: true, align: 'center', visible: true },
-    // 4. Código numérico a la derecha, al par de la parte superior del QR
-    { id: 'right-code', token: 'CODIGO', text: '', x: 9.8, y: 20.3, width: 26.7, height: 3.8, fontSize: 7.2, bold: true, align: 'left', visible: true },
-    // 5. Departamento debajo del código a la derecha, en una línea limpia
-    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 9.8, y: 24.1, width: 26.7, height: 3.8, fontSize: 5.0, bold: true, align: 'left', visible: true },
-    // Elementos ocultos por defecto
+    { id: 'product', token: 'PRODUCTO', text: '', x: 1.0, y: 0.6, width: 35.5, height: 5.4, fontSize: 6.2, bold: true, align: 'center', visible: true },
+    // 2. Precio grande y protagonista al centro (sin QR estorbando)
+    { id: 'price', token: 'PRECIO', text: '', x: 0.8, y: 5.8, width: 35.9, height: 14.2, fontSize: 28, bold: true, align: 'center', visible: true },
+    // 3. Código de barras/numérico abajo a la izquierda
+    { id: 'right-code', token: 'CODIGO', text: '', x: 1.4, y: 20.8, width: 34.7, height: 3.8, fontSize: 7.5, bold: true, align: 'left', visible: true },
+    // 4. Departamento abajo a la izquierda, debajo del código
+    { id: 'department', token: 'DEPARTAMENTO', text: '', x: 1.4, y: 24.6, width: 34.7, height: 4.2, fontSize: 5.2, bold: true, align: 'left', visible: true },
+    // QR desactivado por defecto para dar prioridad al precio grande
+    { id: 'qr', token: 'QR', text: '', x: 1.4, y: 20.4, width: 7.4, height: 7.4, fontSize: 7, bold: true, align: 'center', visible: false },
     { id: 'qr-code', token: 'CODIGO', text: '', x: 1.0, y: 24.4, width: 10.2, height: 4.4, fontSize: 5.2, bold: true, align: 'center', visible: false },
     { id: 'logo', token: 'LOGO', text: '', x: 20.2, y: 14.2, width: 16, height: 7.8, fontSize: 7, bold: true, align: 'center', visible: false },
     { id: 'barcode', token: 'BARCODE', text: '', x: 12.2, y: 15.2, width: 7, height: 10, fontSize: 5, bold: true, align: 'center', visible: false },
@@ -93,11 +92,10 @@ const formatPrice = (value: number): string =>
 
 function getPriceSizeMm(priceText: string, layoutHeight: number): number {
   const digitsAndSign = priceText.replace(/[^0-9$]/g, '').length;
-  // Escala en milímetros dentro del alto disponible (~13.4mm) para que resalte sin salirse con 3 dígitos ($100)
-  const maxHeightMm = Math.min(13.2, layoutHeight * 0.44);
-  if (digitsAndSign >= 4) return Number((maxHeightMm * 0.78).toFixed(1)); // ej. $100
-  if (digitsAndSign === 3) return Number((maxHeightMm * 0.90).toFixed(1)); // ej. $10 - $99
-  return Number(maxHeightMm.toFixed(1)); // ej. $5 - $9
+  const maxHeightMm = Math.min(14.5, layoutHeight * 0.48);
+  if (digitsAndSign >= 4) return Number((maxHeightMm * 0.84).toFixed(1)); // ej. $100 / $222
+  if (digitsAndSign === 3) return Number((maxHeightMm * 0.94).toFixed(1)); // ej. $22
+  return Number(maxHeightMm.toFixed(1)); // ej. $5
 }
 
 export function code128Svg(value: string): string {
