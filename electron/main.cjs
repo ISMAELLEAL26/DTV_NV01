@@ -77,21 +77,41 @@ async function printHiddenHtml(html, options, waitForImages) {
 
   try {
     await new Promise((resolve, reject) => {
-      printWindow.webContents.once('did-finish-load', resolve);
-      printWindow.webContents.once('did-fail-load', (_event, errorCode, errorDescription) =>
-        reject(new Error(`${errorCode}: ${errorDescription}`))
-      );
+      const timer = setTimeout(() => reject(new Error('Tiempo de espera agotado al cargar el documento de impresión.')), 8000);
+      printWindow.webContents.once('did-finish-load', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      printWindow.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => {
+        clearTimeout(timer);
+        reject(new Error(`${errorCode}: ${errorDescription}`));
+      });
       printWindow.loadURL(url);
     });
 
     if (waitForImages) {
-      await printWindow.webContents.executeJavaScript(
-        `Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`
-      );
+      await Promise.race([
+        printWindow.webContents.executeJavaScript(
+          `Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`
+        ),
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ]);
     }
     await new Promise((resolve) => setTimeout(resolve, waitForImages ? 250 : 300));
 
     await new Promise((resolve, reject) => {
+      let settled = false;
+      const done = (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(printTimer);
+        if (err) reject(err);
+        else resolve();
+      };
+      const printTimer = setTimeout(() => {
+        done(new Error('La impresora no confirmó la impresión a tiempo. Revisa su estado o cola.'));
+      }, 10000);
+
       const widthMm = Number(options?.width);
       const heightMm = Number(options?.height);
       const hasCustomLabelSize =
@@ -122,10 +142,14 @@ async function printHiddenHtml(html, options, waitForImages) {
       const printerName = typeof options?.printerName === 'string' ? options.printerName.trim() : '';
       if (printerName) printOptions.deviceName = printerName;
 
-      printWindow.webContents.print(printOptions, (success, failureReason) => {
-        if (success) resolve();
-        else reject(new Error(failureReason || 'No se pudo enviar el trabajo a la impresora.'));
-      });
+      try {
+        printWindow.webContents.print(printOptions, (success, failureReason) => {
+          if (success) done();
+          else done(new Error(failureReason || 'No se pudo enviar el trabajo a la impresora.'));
+        });
+      } catch (err) {
+        done(err instanceof Error ? err : new Error('Error al invocar la impresión.'));
+      }
     });
   } finally {
     if (!printWindow.isDestroyed()) printWindow.close();
