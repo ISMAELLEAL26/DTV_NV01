@@ -189,3 +189,59 @@ export async function printLabels(labels: LabelData[], layout: LabelLayout, prin
   printWindow.addEventListener('afterprint', () => URL.revokeObjectURL(url), { once: true });
   window.setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
+
+export function buildTicketStripHtml(labels: LabelData[], stripWidthMm = 58): string {
+  const cards = labels
+    .map((data) => {
+      const code = escapeHtml(data.code);
+      const name = escapeHtml(data.product.name.toUpperCase());
+      const price = escapeHtml(formatPrice(data.price));
+      const dept = escapeHtml(data.department.toUpperCase());
+      return `<section class="strip-item">
+        <div class="strip-name">${name}</div>
+        <div class="strip-price">${price}</div>
+        <div class="strip-meta">
+          <span class="strip-code">${code}</span>
+          <span class="strip-dept">${dept}</span>
+        </div>
+      </section>`;
+    })
+    .join('');
+
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>
+    @page { size: ${stripWidthMm}mm auto; margin: 0; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #000; width: ${stripWidthMm}mm; font-family: Arial, Helvetica, sans-serif; }
+    .strip-item {
+      width: ${stripWidthMm}mm;
+      padding: 2mm 2.5mm 2.5mm 2.5mm;
+      border-bottom: 1px dashed #000;
+      text-align: center;
+      color: #000;
+    }
+    .strip-item:last-child { border-bottom: none; }
+    .strip-name { font-size: 7pt; font-weight: 700; line-height: 1.1; margin-bottom: 1mm; word-break: break-word; }
+    .strip-price { font-size: 18pt; font-weight: 700; line-height: 1.05; margin: 0.5mm 0 1.2mm 0; }
+    .strip-meta { display: flex; flex-direction: column; gap: 0.4mm; text-align: left; font-size: 6pt; font-weight: 700; line-height: 1.1; }
+    .strip-dept { font-size: 5.2pt; }
+    @media print { html, body { width: ${stripWidthMm}mm; } }
+  </style></head><body>${cards}<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),150));</script></body></html>`;
+}
+
+export async function printTicketStrip(labels: LabelData[], printerName: string, stripWidthMm = 58): Promise<void> {
+  if (labels.length === 0) throw new Error('No hay etiquetas para imprimir en tira.');
+  const html = buildTicketStripHtml(labels, stripWidthMm);
+  if (window.electronAPI?.printLabels) {
+    await window.electronAPI.printLabels(html, { printerName, width: stripWidthMm, height: 0 });
+    return;
+  }
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const printWindow = window.open(url, '_blank', 'noopener,noreferrer,width=420,height=720');
+  if (!printWindow) {
+    URL.revokeObjectURL(url);
+    throw new Error('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes e intenta de nuevo.');
+  }
+  printWindow.addEventListener('afterprint', () => URL.revokeObjectURL(url), { once: true });
+  window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
