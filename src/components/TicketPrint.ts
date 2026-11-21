@@ -144,7 +144,7 @@ function buildTicketDocument(data: TicketData): string {
   const bodyContent = buildTicketBody(data);
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ticket ${escapeHtml(data.folio)}</title><style>
     @page { size: ${width} auto; margin: 0; }
-    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000 !important; background: #fff !important; border-color: #000 !important; opacity: 1 !important; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000 !important; background: #fff !important; border-color: #000 !important; opacity: 1 !important; page-break-inside: avoid; }
     html, body { width: ${width}; margin: 0; padding: 0; background: #fff; color: #000; }
     body { padding: ${padding}; color: #000; font-family: 'Courier New', monospace; font-size: ${fontSize}; font-weight: bold; line-height: 1.4; -webkit-font-smoothing: none; }
     header { text-align: center; color: #000; }
@@ -164,7 +164,6 @@ function buildTicketDocument(data: TicketData): string {
     .barcode rect { fill: #000; }
     .ticket-spacer { line-height: 1.4; }
     b, strong { color: #000; font-weight: bold; }
-    * { page-break-inside: avoid; }
     @media print {
       html, body { width: ${width}; margin: 0; }
       .no-print, button { display: none !important; }
@@ -195,8 +194,15 @@ function buildTicketDocument(data: TicketData): string {
 async function silentPrint(html: string): Promise<boolean> {
   const electronAPI = (window as unknown as { electronAPI?: { printTicket: (html: string, options?: { printerName?: string }) => Promise<void> } }).electronAPI;
   if (electronAPI?.printTicket) {
-    const savedPrinter = window.localStorage.getItem('pos_printer_name') ?? '';
-    try { await electronAPI.printTicket(html, savedPrinter ? { printerName: savedPrinter } : undefined); return true; } catch { return false; }
+    let savedPrinter = '';
+    try { savedPrinter = window.localStorage.getItem('pos_printer_name') ?? ''; } catch { savedPrinter = ''; }
+    try {
+      await electronAPI.printTicket(html, savedPrinter ? { printerName: savedPrinter } : undefined);
+      return true;
+    } catch (error) {
+      console.error('silentPrint failed', error);
+      return false;
+    }
   }
   return false;
 }
@@ -325,10 +331,10 @@ function buildCashTicketDocument(data: CashTicketData): string {
     ? `<div class="divider"></div><div class="row"><b>${escapeHtml(data.resultLabel)}</b><b>${escapeHtml(data.resultValue)}</b></div>`
     : '';
   const signatureHtml = data.signatureLine ? `<div class="divider"></div><div style="margin-top:8mm;text-align:center;"><div style="border-top:1px solid #000;width:70%;margin:0 auto;"></div><div class="small" style="margin-top:1mm;">Firma del cajero</div></div>` : '';
-  const body = `<header>${logoHtml}<h1>${escapeHtml(data.storeName)}</h1>${addressHtml}</header><div class="divider"></div><div class="center small">${escapeHtml(data.title)}</div><div class="divider"></div>${rowsHtml}${sectionsHtml}${resultHtml}${signatureHtml}<div class="center small" style="margin-top:2mm;">Gracias por su preferencia</div><div class="ticket-spacer"><div>&nbsp;</div><div>&nbsp;</div><div>&nbsp;</div><div>&nbsp;</div><div>&nbsp;</div></div><div class="center small">.</div>`
+  const body = `<header>${logoHtml}<h1>${escapeHtml(data.storeName)}</h1>${addressHtml}</header><div class="divider"></div><div class="center small">${escapeHtml(data.title)}</div><div class="divider"></div>${rowsHtml}${sectionsHtml}${resultHtml}${signatureHtml}<div class="center small" style="margin-top:2mm;">Gracias por su preferencia</div><div class="ticket-spacer"><div>&nbsp;</div><div>&nbsp;</div><div>&nbsp;</div><div>&nbsp;</div><div>&nbsp;</div></div><div class="center small">.</div>`;
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(data.title)} ${escapeHtml(data.folio)}</title><style>
     @page { size: ${width} auto; margin: 0; }
-    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000 !important; background: #fff !important; border-color: #000 !important; opacity: 1 !important; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000 !important; background: #fff !important; border-color: #000 !important; opacity: 1 !important; page-break-inside: avoid; }
     html, body { width: ${width}; margin: 0; padding: 0; background: #fff; color: #000; }
     body { padding: 4mm; color: #000; font-family: 'Courier New', monospace; font-size: ${fontSize}; font-weight: bold; line-height: 1.4; -webkit-font-smoothing: none; }
     header { text-align: center; }
@@ -340,7 +346,6 @@ function buildCashTicketDocument(data: CashTicketData): string {
     .small { font-size: ${smallSize}; }
     .ticket-spacer { line-height: 1.4; }
     b, strong { font-weight: bold; }
-    * { page-break-inside: avoid; }
     @media print { html, body { width: ${width}; margin: 0; } button, .no-print { display: none !important; } }
   </style></head><body>${body}<script>(function(){function p(){try{window.print()}catch(e){}}if(document.readyState==='complete'){setTimeout(p,150)}else{window.addEventListener('load',function(){setTimeout(p,150)})}})();<\/script></body></html>`;
 }
