@@ -10,9 +10,11 @@ import { PageHeader, Card, EmptyState } from '@/components/ui';
 import Button from '@/components/Button';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import LabelDesignerModal from '@/components/LabelDesignerModal';
-import { printLabels, getProductCode, type LabelData } from '@/lib/labelPrint';
+import { printLabels, printTicketStrip, getProductCode, type LabelData } from '@/lib/labelPrint';
 import { LABEL_PRINTER_STORAGE_KEY, defaultLabelTemplates, loadLabelTemplates, saveLabelTemplates, type LabelTemplate } from '@/lib/labelTemplates';
-import { Camera, FileSpreadsheet, Image as ImageIcon, PackageSearch, Plus, Printer, RefreshCw, Save, ScanLine, Trash2, X } from 'lucide-react';
+import { Camera, FileSpreadsheet, Image as ImageIcon, PackageSearch, Plus, Printer, Receipt, RefreshCw, Save, ScanLine, Trash2, X } from 'lucide-react';
+
+const TICKET_LABEL_PRINTER_STORAGE_KEY = 'pos_ticket_label_printer_name';
 
 interface QueueItem {
   product: Product;
@@ -143,6 +145,7 @@ function LabelsPageContent() {
   const [activeTemplateId, setActiveTemplateId] = useState('builtin-standard-37x30');
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [printerName, setPrinterName] = useState('');
+  const [ticketPrinterName, setTicketPrinterName] = useState('');
   const [printerError, setPrinterError] = useState<string | null>(null);
   const [batches, setBatches] = useState<SavedBatch[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
@@ -150,6 +153,7 @@ function LabelsPageContent() {
   const [loading, setLoading] = useState(true);
   const [loadingBatch, setLoadingBatch] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [printingStrip, setPrintingStrip] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +169,7 @@ function LabelsPageContent() {
     [departments],
   );
   const isElectron = Boolean(window.electronAPI?.printLabels);
+  const isBusy = printing || printingStrip || exporting;
   const totalLabels = queue.reduce((sum, item) => sum + item.quantity, 0);
   const suggestions = useMemo(() => {
     const query = productInput.trim();
@@ -221,6 +226,9 @@ function LabelsPageContent() {
     setPrinterName((current) => {
       try { return window.localStorage.getItem(LABEL_PRINTER_STORAGE_KEY) ?? current; } catch { return current; }
     });
+    setTicketPrinterName((current) => {
+      try { return window.localStorage.getItem(TICKET_LABEL_PRINTER_STORAGE_KEY) ?? current; } catch { return current; }
+    });
   }, []);
 
   const refreshPrinters = useCallback(async () => {
@@ -233,11 +241,16 @@ function LabelsPageContent() {
       const list = await window.electronAPI.getPrinters();
       setPrinters(list);
       let saved = '';
-      try { saved = window.localStorage.getItem(LABEL_PRINTER_STORAGE_KEY) ?? ''; } catch { /* best effort */ }
+      let savedTicket = '';
+      try {
+        saved = window.localStorage.getItem(LABEL_PRINTER_STORAGE_KEY) ?? '';
+        savedTicket = window.localStorage.getItem(TICKET_LABEL_PRINTER_STORAGE_KEY) ?? '';
+      } catch { /* best effort */ }
       if (saved && !list.some((printer) => printer.name === saved)) {
         setPrinterError(`La impresora de etiquetas guardada no está conectada: ${saved}. Elige otra impresora.`);
       }
       setPrinterName((current) => current || saved || list.find((printer) => printer.isDefault)?.name || list[0]?.name || '');
+      setTicketPrinterName((current) => current || savedTicket || '');
     } catch {
       setPrinterError('No se pudieron detectar las impresoras instaladas.');
     }
@@ -249,6 +262,12 @@ function LabelsPageContent() {
     setPrinterName(value);
     setPrinterError(null);
     try { window.localStorage.setItem(LABEL_PRINTER_STORAGE_KEY, value); } catch { /* best effort */ }
+  };
+
+  const handleTicketPrinterChange = (value: string) => {
+    setTicketPrinterName(value);
+    setPrinterError(null);
+    try { window.localStorage.setItem(TICKET_LABEL_PRINTER_STORAGE_KEY, value); } catch { /* best effort */ }
   };
 
   const addProduct = useCallback((product: Product) => {
@@ -354,271 +373,4 @@ function LabelsPageContent() {
     const { data, error: itemsError } = await supabase
       .from('label_print_batch_items')
       .select('*')
-      .eq('batch_id', batch.id)
-      .order('sort_order');
-    if (itemsError) {
-      setError('No se pudo cargar ese lote.');
-      setLoadingBatch(false);
-      return;
-    }
-    const nextQueue = ((data as SavedBatchItem[]) ?? []).map((item) => {
-      const current = item.product_id ? products.find((product) => product.id === item.product_id) : undefined;
-      const product = current ? { ...current, name: item.product_name, image_url: item.product_image_url, sale_price: Number(item.sale_price), department: item.department } : productFromBatchItem(item);
-      return { product, quantity: item.quantity };
-    });
-    setQueue(nextQueue);
-    setSelectedBatchId(batch.id);
-    setBatchName(batch.name);
-    setMessage(`Lote "${batch.name}" cargado.`);
-    setLoadingBatch(false);
-    productInputRef.current?.focus();
-  };
-
-  const deleteBatch = async (batchId: string) => {
-    const { error: deleteError } = await supabase.from('label_print_batches').delete().eq('id', batchId);
-    if (deleteError) { setError('No se pudo eliminar el lote.'); return; }
-    setBatches((current) => current.filter((batch) => batch.id !== batchId));
-    if (selectedBatchId === batchId) setSelectedBatchId(null);
-  };
-
-  const handleSaveTemplate = (name: string, layout: LabelTemplate['layout']) => {
-    const template: LabelTemplate = { id: `tpl-${Date.now()}`, name, layout };
-    const next = [...templates, template];
-    setTemplates(next);
-    saveLabelTemplates(next.filter((item) => !item.builtin));
-    setActiveTemplateId(template.id);
-    setMessage(`Plantilla "${name}" guardada.`);
-  };
-
-  const handleDeleteTemplate = (templateId: string) => {
-    const next = templates.filter((template) => template.id !== templateId);
-    setTemplates(next);
-    saveLabelTemplates(next.filter((item) => !item.builtin));
-    if (activeTemplateId === templateId) setActiveTemplateId(next[0]?.id ?? '');
-  };
-
-  const markBatchPrintedIfSelected = async () => {
-    if (!selectedBatchId) return;
-    await supabase
-      .from('label_print_batches')
-      .update({ status: 'printed', printed_at: new Date().toISOString() })
-      .eq('id', selectedBatchId);
-    setBatches((current) =>
-      current.map((batch) =>
-        batch.id === selectedBatchId ? { ...batch, status: 'printed', printed_at: new Date().toISOString() } : batch
-      )
-    );
-  };
-
-  const handlePrint = async () => {
-    setError(null);
-    setMessage(null);
-    if (queue.length === 0) { setError('La cola está vacía. Agrega productos o carga un lote guardado.'); return; }
-    if (isElectron) {
-      if (printers.length === 0) { setError('No hay una impresora disponible. Conecta la impresora de etiquetas y actualiza la lista.'); return; }
-      if (!printerName || !printers.some((printer) => printer.name === printerName)) {
-        setPrinterError(`Selecciona una impresora de etiquetas conectada antes de imprimir${printerName ? `: ${printerName}` : '.'}`);
-        return;
-      }
-    }
-    if (!activeTemplate) { setError('Selecciona una plantilla válida.'); return; }
-    setPrinting(true);
-    try {
-      const logoDataUrl = (() => {
-        try { return window.localStorage.getItem('pos_label_logo_data_url') ?? ''; } catch { return ''; }
-      })();
-      const labels: LabelData[] = [];
-      for (const item of queue) {
-        const qrDataUrl = await QRCode.toDataURL(getProductCode(item.product), { margin: 0, width: 220, color: { dark: '#000000', light: '#ffffff' } });
-        const department = departmentNames[item.product.department ?? ''] ?? item.product.department ?? item.product.category?.name ?? '';
-        for (let copy = 0; copy < item.quantity; copy++) labels.push(buildLabelData(item.product, Number(item.product.sale_price), department, qrDataUrl, logoDataUrl));
-      }
-      await printLabels(labels, activeTemplate.layout, printerName);
-      await markBatchPrintedIfSelected();
-      setMessage(`${totalLabels} etiqueta(s) enviadas a la impresora.`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron imprimir las etiquetas.');
-    } finally {
-      setPrinting(false);
-    }
-  };
-
-  const handleExportExcel = async () => {
-    setError(null);
-    setMessage(null);
-    if (queue.length === 0) {
-      setError('La cola está vacía. Agrega productos o carga un lote guardado.');
-      return;
-    }
-
-    setExporting(true);
-    try {
-      const employeeName = (
-        auth.profile?.full_name ||
-        auth.profile?.name ||
-        auth.user?.full_name ||
-        auth.user?.name ||
-        'ISMAEL LEAL'
-      ).toUpperCase();
-      const timestamp = formatElaborationDateTime(new Date());
-
-      const rows: Array<{
-        CODIGO: string;
-        PRODUCTO: string;
-        PRECIO: string;
-        DEPARTAMENTO: string;
-        EMPLEADO: string;
-        'FECHA Y HORA DE ELABORACION': string;
-      }> = [];
-
-      for (const item of queue) {
-        const code = String(getProductCode(item.product) ?? '').trim();
-        const name = String(item.product.name ?? '').toUpperCase();
-        const priceFormatted = `$${Number(item.product.sale_price ?? 0).toFixed(2)}`;
-        const dept = String(
-          departmentNames[item.product.department ?? ''] ??
-          item.product.department ??
-          item.product.category?.name ??
-          'SIN DEPARTAMENTO'
-        ).toUpperCase();
-
-        const copies = Math.max(1, Number(item.quantity) || 1);
-        for (let copy = 0; copy < copies; copy++) {
-          rows.push({
-            CODIGO: code,
-            PRODUCTO: name,
-            PRECIO: priceFormatted,
-            DEPARTAMENTO: dept,
-            EMPLEADO: employeeName,
-            'FECHA Y HORA DE ELABORACION': timestamp,
-          });
-        }
-      }
-
-      const worksheet = XLSX.utils.json_to_sheet(rows, {
-        header: ['CODIGO', 'PRODUCTO', 'PRECIO', 'DEPARTAMENTO', 'EMPLEADO', 'FECHA Y HORA DE ELABORACION'],
-      });
-      worksheet['!cols'] = [
-        { wch: 20 },
-        { wch: 42 },
-        { wch: 14 },
-        { wch: 32 },
-        { wch: 22 },
-        { wch: 26 },
-      ];
-
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'ETIQUETAS');
-      XLSX.writeFile(workbook, 'ETIQUETAS_DTB.xlsx');
-
-      await markBatchPrintedIfSelected();
-      setMessage(`Plantilla ETIQUETAS_DTB.xlsx descargada con ${rows.length} etiqueta(s).`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo descargar la plantilla ETIQUETAS_DTB.xlsx.');
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  return (
-    <div className="p-4 lg:p-6">
-      <PageHeader title="Etiquetas" subtitle="Usa el mismo control para lector USB, búsqueda o cámara. Imprime directo o descarga la plantilla." />
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,1fr)]">
-        <div className="space-y-5">
-          <Card className="p-4">
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Agregar producto</label>
-            <div className="flex gap-2">
-              <div className="relative min-w-0 flex-1">
-                <input
-                  ref={productInputRef}
-                  className={`${fieldClass} w-full`}
-                  value={productInput}
-                  onChange={(event) => setProductInput(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void handleProductInput(productInput); } }}
-                  placeholder="Escanea, escribe nombre/código y presiona Enter"
-                  autoFocus
-                  autoComplete="off"
-                />
-                {productInput.trim() && suggestions.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full z-20 mt-1 divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-                    {suggestions.map((product) => (
-                      <button key={product.id} type="button" onClick={() => addProduct(product)} className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-emerald-50">
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-md bg-slate-100">{product.image_url ? <img src={product.image_url} alt="" className="h-full w-full object-cover" /> : <ImageIcon size={15} className="text-slate-400" />}</div>
-                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-slate-700">{product.name}</span><span className="block text-xs text-slate-400">{getProductCode(product)} · {formatCurrency(Number(product.sale_price))}</span></span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <Button className="w-full flex-shrink-0 sm:w-auto" variant="secondary" onClick={() => setScannerOpen(true)} title="Escanear con cámara"><Camera size={17} /><span className="hidden sm:inline">Cámara</span><span className="sm:hidden">Escanear con cámara</span></Button>
-            </div>
-            <p className="mt-2 flex items-center gap-1.5 text-[11px] leading-4 text-slate-500"><ScanLine size={13} /> El lector USB funciona cuando este campo está enfocado; la cámara agrega el producto desde el celular.</p>
-          </Card>
-
-          <Card className="overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
-              <div className="text-sm font-bold text-slate-800">Cola de impresión · {queue.length} producto(s) · {totalLabels} etiqueta(s)</div>
-              <div className="flex gap-2">{queue.length > 0 && <Button variant="secondary" size="sm" onClick={() => setQueue([])}>Vaciar cola</Button>}</div>
-            </div>
-            {loading ? <p className="px-4 py-8 text-center text-sm text-slate-500">Cargando catálogo...</p> : queue.length === 0 ? (
-              <EmptyState title="Cola vacía" description="Escanea, busca o carga un lote guardado para comenzar." icon={<PackageSearch size={48} />} />
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {queue.map((item, index) => {
-                  const department = departmentNames[item.product.department ?? ''] ?? item.product.department ?? item.product.category?.name ?? 'Sin departamento';
-                  return <div key={item.product.id} className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-3 px-4 py-3 sm:flex sm:flex-wrap">
-                    <span className="w-6 flex-shrink-0 text-xs font-semibold text-slate-400">{index + 1}</span>
-                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100">{item.product.image_url ? <img src={item.product.image_url} alt="" className="h-full w-full object-cover" /> : <ImageIcon size={18} className="text-slate-400" />}</div>
-                    <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-800">{item.product.name}</div><div className="truncate text-xs text-slate-500">{getProductCode(item.product)} · {formatCurrency(Number(item.product.sale_price))} · Departamento: {department}</div></div>
-                    <div className="col-span-3 flex items-center justify-end gap-1 sm:col-auto sm:ml-auto"><button type="button" onClick={() => setQuantity(item.product.id, item.quantity - 1)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-bold text-slate-600 hover:bg-slate-50" title="Restar"><span aria-hidden="true">−</span></button><input className={`${fieldClass} w-16 text-center`} type="number" min="1" max="999" value={item.quantity} onChange={(event) => setQuantity(item.product.id, Number(event.target.value))} /><button type="button" onClick={() => setQuantity(item.product.id, item.quantity + 1)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-bold text-slate-600 hover:bg-slate-50" title="Sumar"><Plus size={15} /></button><button type="button" onClick={() => removeItem(item.product.id)} className="ml-2 rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Quitar"><X size={17} /></button></div>
-                  </div>;
-                })}
-              </div>
-            )}
-          </Card>
-
-          <Card className="p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><div className="text-sm font-bold text-slate-800">Guardar lote para imprimir después</div><p className="mt-1 text-xs text-slate-500">Guárdalo desde el celular y cárgalo aquí desde la computadora con la misma cuenta.</p></div><Save size={20} className="text-emerald-600" /></div>
-            <div className="flex flex-col gap-2 sm:flex-row"><input className={`${fieldClass} min-w-0 flex-1`} value={batchName} onChange={(event) => setBatchName(event.target.value)} placeholder="Nombre del lote" /><Button className="w-full sm:w-auto" onClick={() => void saveBatch()} disabled={queue.length === 0}><Save size={15} /> Guardar lote</Button></div>
-          </Card>
-        </div>
-
-        <div className="space-y-5">
-          <Card className="p-4">
-            <div className="mb-3 flex items-center justify-between gap-2"><div><div className="text-sm font-bold text-slate-800">Lotes guardados</div><p className="mt-1 text-xs text-slate-500">Pendientes y ya impresos de tu cuenta.</p></div><button type="button" onClick={() => void loadBatches()} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" title="Actualizar lotes"><RefreshCw size={16} /></button></div>
-            {batches.length === 0 ? <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs text-slate-500">Todavía no hay lotes guardados.</p> : <div className="max-h-64 space-y-2 overflow-y-auto">{batches.map((batch) => <div key={batch.id} className={`rounded-lg border p-3 ${selectedBatchId === batch.id ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-200'}`}><div className="flex items-start gap-2"><button type="button" onClick={() => void loadBatch(batch)} disabled={loadingBatch} className="min-w-0 flex-1 text-left"><span className="block truncate text-sm font-semibold text-slate-700">{batch.name}</span><span className="mt-1 block text-xs text-slate-500">{batch.total_labels} etiqueta(s) · {formatBatchDate(batch.created_at)} · {batch.status === 'printed' ? 'Impreso' : 'Pendiente'}</span></button><button type="button" onClick={() => void deleteBatch(batch.id)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Eliminar lote"><Trash2 size={15} /></button></div></div>)}</div>}
-          </Card>
-
-          <Card className="p-4">
-            <div className="mb-3 text-sm font-bold text-slate-800">Plantilla</div>
-            <select className={`${fieldClass} w-full`} value={activeTemplate?.id ?? ''} onChange={(event) => setActiveTemplateId(event.target.value)}>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select>
-            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" size="sm" onClick={() => setDesignerOpen(true)}>Abrir diseñador de plantillas</Button>{activeTemplate && !activeTemplate.builtin && <Button variant="danger" size="sm" onClick={() => handleDeleteTemplate(activeTemplate.id)}>Eliminar plantilla</Button>}</div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="mb-3 flex items-center justify-between gap-2"><div className="text-sm font-bold text-slate-800">Impresora de etiquetas</div><button type="button" onClick={() => void refreshPrinters()} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" title="Actualizar impresoras"><RefreshCw size={16} /></button></div>
-            {printers.length > 0 ? <select className={`${fieldClass} w-full`} value={printerName} onChange={(event) => handlePrinterChange(event.target.value)}><option value="">Selecciona una impresora</option>{printers.map((printer) => <option key={printer.name} value={printer.name}>{printer.displayName}{printer.isDefault ? ' · predeterminada del sistema' : ''}</option>)}</select> : <p className="text-xs text-slate-500">{isElectron ? 'No se detectaron impresoras instaladas.' : 'En el navegador se abrirá la vista previa; el programa de escritorio mostrará la impresora de etiquetas.'}</p>}
-            <p className="mt-2 text-[11px] leading-4 text-slate-500">Esta selección solo se usa para etiquetas. No cambia la impresora de tickets ni la predeterminada de Windows.</p>{printerError && <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{printerError}</div>}
-          </Card>
-
-          {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}{message && <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div>}
-
-          <div className="space-y-2">
-            <Button className="w-full" onClick={() => void handlePrint()} disabled={printing || exporting || queue.length === 0}>
-              <Printer size={16} />
-              {printing ? 'Imprimiendo...' : `Imprimir ${totalLabels} etiqueta(s)`}
-            </Button>
-            <Button className="w-full" variant="secondary" onClick={() => void handleExportExcel()} disabled={printing || exporting || queue.length === 0}>
-              <FileSpreadsheet size={16} />
-              {exporting ? 'Descargando plantilla...' : 'Descargar plantilla'}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onDetect={(code) => { void handleProductInput(code); }} title="Escanear producto para etiquetas" />
-      <LabelDesignerModal open={designerOpen} onClose={() => setDesignerOpen(false)} product={queue[0]?.product ?? null} template={activeTemplate ?? { id: 'fallback', name: 'Estándar 37.5 × 30 mm (Sin logo)', layout: defaultLabelTemplates()[0].layout, builtin: true }} onSaveTemplate={handleSaveTemplate} departmentNames={departmentNames} />
-    </div>
-  );
-}
+      .eq('batch_id', batch.id
