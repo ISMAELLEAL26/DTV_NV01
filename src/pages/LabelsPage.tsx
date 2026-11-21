@@ -10,11 +10,9 @@ import { PageHeader, Card, EmptyState } from '@/components/ui';
 import Button from '@/components/Button';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import LabelDesignerModal from '@/components/LabelDesignerModal';
-import { printLabels, printTicketStrip, getProductCode, type LabelData } from '@/lib/labelPrint';
+import { printLabels, getProductCode, type LabelData } from '@/lib/labelPrint';
 import { LABEL_PRINTER_STORAGE_KEY, defaultLabelTemplates, loadLabelTemplates, saveLabelTemplates, type LabelTemplate } from '@/lib/labelTemplates';
-import { Camera, FileSpreadsheet, Image as ImageIcon, PackageSearch, Plus, Printer, Receipt, RefreshCw, Save, ScanLine, Trash2, X } from 'lucide-react';
-
-const TICKET_LABEL_PRINTER_STORAGE_KEY = 'pos_ticket_label_printer_name';
+import { Camera, FileSpreadsheet, Image as ImageIcon, PackageSearch, Plus, Printer, RefreshCw, Save, ScanLine, Trash2, X } from 'lucide-react';
 
 interface QueueItem {
   product: Product;
@@ -145,7 +143,6 @@ function LabelsPageContent() {
   const [activeTemplateId, setActiveTemplateId] = useState('builtin-standard-37x30');
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [printerName, setPrinterName] = useState('');
-  const [ticketPrinterName, setTicketPrinterName] = useState('');
   const [printerError, setPrinterError] = useState<string | null>(null);
   const [batches, setBatches] = useState<SavedBatch[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
@@ -153,7 +150,6 @@ function LabelsPageContent() {
   const [loading, setLoading] = useState(true);
   const [loadingBatch, setLoadingBatch] = useState(false);
   const [printing, setPrinting] = useState(false);
-  const [printingStrip, setPrintingStrip] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -169,7 +165,6 @@ function LabelsPageContent() {
     [departments],
   );
   const isElectron = Boolean(window.electronAPI?.printLabels);
-  const isBusy = printing || printingStrip || exporting;
   const totalLabels = queue.reduce((sum, item) => sum + item.quantity, 0);
   const suggestions = useMemo(() => {
     const query = productInput.trim();
@@ -226,9 +221,6 @@ function LabelsPageContent() {
     setPrinterName((current) => {
       try { return window.localStorage.getItem(LABEL_PRINTER_STORAGE_KEY) ?? current; } catch { return current; }
     });
-    setTicketPrinterName((current) => {
-      try { return window.localStorage.getItem(TICKET_LABEL_PRINTER_STORAGE_KEY) ?? current; } catch { return current; }
-    });
   }, []);
 
   const refreshPrinters = useCallback(async () => {
@@ -241,16 +233,11 @@ function LabelsPageContent() {
       const list = await window.electronAPI.getPrinters();
       setPrinters(list);
       let saved = '';
-      let savedTicket = '';
-      try {
-        saved = window.localStorage.getItem(LABEL_PRINTER_STORAGE_KEY) ?? '';
-        savedTicket = window.localStorage.getItem(TICKET_LABEL_PRINTER_STORAGE_KEY) ?? '';
-      } catch { /* best effort */ }
+      try { saved = window.localStorage.getItem(LABEL_PRINTER_STORAGE_KEY) ?? ''; } catch { /* best effort */ }
       if (saved && !list.some((printer) => printer.name === saved)) {
         setPrinterError(`La impresora de etiquetas guardada no está conectada: ${saved}. Elige otra impresora.`);
       }
       setPrinterName((current) => current || saved || list.find((printer) => printer.isDefault)?.name || list[0]?.name || '');
-      setTicketPrinterName((current) => current || savedTicket || '');
     } catch {
       setPrinterError('No se pudieron detectar las impresoras instaladas.');
     }
@@ -262,12 +249,6 @@ function LabelsPageContent() {
     setPrinterName(value);
     setPrinterError(null);
     try { window.localStorage.setItem(LABEL_PRINTER_STORAGE_KEY, value); } catch { /* best effort */ }
-  };
-
-  const handleTicketPrinterChange = (value: string) => {
-    setTicketPrinterName(value);
-    setPrinterError(null);
-    try { window.localStorage.setItem(TICKET_LABEL_PRINTER_STORAGE_KEY, value); } catch { /* best effort */ }
   };
 
   const addProduct = useCallback((product: Product) => {
@@ -429,21 +410,6 @@ function LabelsPageContent() {
     );
   };
 
-  const buildQueueLabels = async (): Promise<LabelData[]> => {
-    const logoDataUrl = (() => {
-      try { return window.localStorage.getItem('pos_label_logo_data_url') ?? ''; } catch { return ''; }
-    })();
-    const labels: LabelData[] = [];
-    for (const item of queue) {
-      const qrDataUrl = await QRCode.toDataURL(getProductCode(item.product), { margin: 0, width: 220, color: { dark: '#000000', light: '#ffffff' } });
-      const department = departmentNames[item.product.department ?? ''] ?? item.product.department ?? item.product.category?.name ?? '';
-      for (let copy = 0; copy < item.quantity; copy++) {
-        labels.push(buildLabelData(item.product, Number(item.product.sale_price), department, qrDataUrl, logoDataUrl));
-      }
-    }
-    return labels;
-  };
-
   const handlePrint = async () => {
     setError(null);
     setMessage(null);
@@ -458,7 +424,15 @@ function LabelsPageContent() {
     if (!activeTemplate) { setError('Selecciona una plantilla válida.'); return; }
     setPrinting(true);
     try {
-      const labels = await buildQueueLabels();
+      const logoDataUrl = (() => {
+        try { return window.localStorage.getItem('pos_label_logo_data_url') ?? ''; } catch { return ''; }
+      })();
+      const labels: LabelData[] = [];
+      for (const item of queue) {
+        const qrDataUrl = await QRCode.toDataURL(getProductCode(item.product), { margin: 0, width: 220, color: { dark: '#000000', light: '#ffffff' } });
+        const department = departmentNames[item.product.department ?? ''] ?? item.product.department ?? item.product.category?.name ?? '';
+        for (let copy = 0; copy < item.quantity; copy++) labels.push(buildLabelData(item.product, Number(item.product.sale_price), department, qrDataUrl, logoDataUrl));
+      }
       await printLabels(labels, activeTemplate.layout, printerName);
       await markBatchPrintedIfSelected();
       setMessage(`${totalLabels} etiqueta(s) enviadas a la impresora.`);
@@ -466,30 +440,6 @@ function LabelsPageContent() {
       setError(cause instanceof Error ? cause.message : 'No se pudieron imprimir las etiquetas.');
     } finally {
       setPrinting(false);
-    }
-  };
-
-  const handlePrintTicketStrip = async () => {
-    setError(null);
-    setMessage(null);
-    if (queue.length === 0) { setError('La cola está vacía. Agrega productos o carga un lote guardado.'); return; }
-    if (isElectron) {
-      if (printers.length === 0) { setError('No hay una impresora disponible. Conecta la impresora de ticket 58 mm y actualiza la lista.'); return; }
-      if (!ticketPrinterName || !printers.some((printer) => printer.name === ticketPrinterName)) {
-        setPrinterError(`Selecciona la impresora de ticket 58 mm (SEAFON) antes de imprimir en tira${ticketPrinterName ? `: ${ticketPrinterName}` : '.'}`);
-        return;
-      }
-    }
-    setPrintingStrip(true);
-    try {
-      const labels = await buildQueueLabels();
-      await printTicketStrip(labels, ticketPrinterName, 58);
-      await markBatchPrintedIfSelected();
-      setMessage(`${totalLabels} etiqueta(s) enviadas en tira continua (58 mm) a la impresora de ticket.`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo imprimir la tira en la impresora de ticket.');
-    } finally {
-      setPrintingStrip(false);
     }
   };
 
@@ -619,7 +569,7 @@ function LabelsPageContent() {
                   const department = departmentNames[item.product.department ?? ''] ?? item.product.department ?? item.product.category?.name ?? 'Sin departamento';
                   return <div key={item.product.id} className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-3 px-4 py-3 sm:flex sm:flex-wrap">
                     <span className="w-6 flex-shrink-0 text-xs font-semibold text-slate-400">{index + 1}</span>
-                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100">{item.product.image_url ? <img src={item.product.image_url} alt="" className="h-full w-full object-cover" /> : <ImageIcon size={18} className="text-slate-400" />}</div>
+                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100">{item.product.image_url ? <img src={product.image_url} alt="" className="h-full w-full object-cover" /> : <ImageIcon size={18} className="text-slate-400" />}</div>
                     <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-800">{item.product.name}</div><div className="truncate text-xs text-slate-500">{getProductCode(item.product)} · {formatCurrency(Number(item.product.sale_price))} · Departamento: {department}</div></div>
                     <div className="col-span-3 flex items-center justify-end gap-1 sm:col-auto sm:ml-auto"><button type="button" onClick={() => setQuantity(item.product.id, item.quantity - 1)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-bold text-slate-600 hover:bg-slate-50" title="Restar"><span aria-hidden="true">−</span></button><input className={`${fieldClass} w-16 text-center`} type="number" min="1" max="999" value={item.quantity} onChange={(event) => setQuantity(item.product.id, Number(event.target.value))} /><button type="button" onClick={() => setQuantity(item.product.id, item.quantity + 1)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-bold text-slate-600 hover:bg-slate-50" title="Sumar"><Plus size={15} /></button><button type="button" onClick={() => removeItem(item.product.id)} className="ml-2 rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Quitar"><X size={17} /></button></div>
                   </div>;
@@ -646,50 +596,23 @@ function LabelsPageContent() {
             <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" size="sm" onClick={() => setDesignerOpen(true)}>Abrir diseñador de plantillas</Button>{activeTemplate && !activeTemplate.builtin && <Button variant="danger" size="sm" onClick={() => handleDeleteTemplate(activeTemplate.id)}>Eliminar plantilla</Button>}</div>
           </Card>
 
-          <Card className="p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2"><div className="text-sm font-bold text-slate-800">Impresoras</div><button type="button" onClick={() => void refreshPrinters()} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" title="Actualizar impresoras"><RefreshCw size={16} /></button></div>
-            {printers.length > 0 ? (
-              <>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-600">Etiquetadora principal (37.5 × 30 mm)</label>
-                  <select className={`${fieldClass} w-full`} value={printerName} onChange={(event) => handlePrinterChange(event.target.value)}>
-                    <option value="">Selecciona una impresora</option>
-                    {printers.map((printer) => <option key={printer.name} value={printer.name}>{printer.displayName}{printer.isDefault ? ' · predeterminada del sistema' : ''}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-blue-700">Respaldo tira continua 58 mm (SEAFON)</label>
-                  <select className={`${fieldClass} w-full border-blue-200 focus:border-blue-500 focus:ring-blue-500/10`} value={ticketPrinterName} onChange={(event) => handleTicketPrinterChange(event.target.value)}>
-                    <option value="">Selecciona impresora de ticket 58 mm</option>
-                    {printers.map((printer) => <option key={`ticket-${printer.name}`} value={printer.name}>{printer.displayName}</option>)}
-                  </select>
-                </div>
-              </>
-            ) : <p className="text-xs text-slate-500">{isElectron ? 'No se detectaron impresoras instaladas.' : 'En el navegador se abrirá la vista previa; el programa de escritorio mostrará las impresoras.'}</p>}
-            <p className="text-[11px] leading-4 text-slate-500">Esta selección solo se usa para etiquetas. No cambia la impresora de tickets de venta ni la predeterminada de Windows.</p>
-            {printerError && <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{printerError}</div>}
+          <Card className="p-4">
+            <div className="mb-3 flex items-center justify-between gap-2"><div className="text-sm font-bold text-slate-800">Impresora de etiquetas</div><button type="button" onClick={() => void refreshPrinters()} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" title="Actualizar impresoras"><RefreshCw size={16} /></button></div>
+            {printers.length > 0 ? <select className={`${fieldClass} w-full`} value={printerName} onChange={(event) => handlePrinterChange(event.target.value)}><option value="">Selecciona una impresora</option>{printers.map((printer) => <option key={printer.name} value={printer.name}>{printer.displayName}{printer.isDefault ? ' · predeterminada del sistema' : ''}</option>)}</select> : <p className="text-xs text-slate-500">{isElectron ? 'No se detectaron impresoras instaladas.' : 'En el navegador se abrirá la vista previa; el programa de escritorio mostrará la impresora de etiquetas.'}</p>}
+            <p className="mt-2 text-[11px] leading-4 text-slate-500">Esta selección solo se usa para etiquetas. No cambia la impresora de tickets ni la predeterminada de Windows.</p>{printerError && <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{printerError}</div>}
           </Card>
 
           {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}{message && <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div>}
 
           <div className="space-y-2">
-            <Button className="w-full" onClick={() => void handlePrint()} disabled={isBusy || queue.length === 0}>
+            <Button className="w-full" onClick={() => void handlePrint()} disabled={printing || exporting || queue.length === 0}>
               <Printer size={16} />
               {printing ? 'Imprimiendo...' : `Imprimir ${totalLabels} etiqueta(s)`}
             </Button>
-            <Button className="w-full" variant="secondary" onClick={() => void handleExportExcel()} disabled={isBusy || queue.length === 0}>
+            <Button className="w-full" variant="secondary" onClick={() => void handleExportExcel()} disabled={printing || exporting || queue.length === 0}>
               <FileSpreadsheet size={16} />
               {exporting ? 'Descargando plantilla...' : 'Descargar plantilla'}
             </Button>
-            <button
-              type="button"
-              onClick={() => void handlePrintTicketStrip()}
-              disabled={isBusy || queue.length === 0}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Receipt size={16} />
-              {printingStrip ? 'Imprimiendo tira 58 mm...' : `Respaldo tira 58 mm (${totalLabels})`}
-            </button>
           </div>
         </div>
       </div>
