@@ -100,7 +100,7 @@ async function printHiddenHtml(html, options, waitForImages) {
         new Promise((resolve) => setTimeout(resolve, 2500)),
       ]);
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -137,9 +137,6 @@ async function printHiddenHtml(html, options, waitForImages) {
             }
           : {}),
       };
-
-      const printerName = typeof options?.printerName === 'string' ? options.printerName.trim() : '';
-      if (printerName) printOptions.deviceName = printerName;
 
       try {
         printWindow.webContents.print(printOptions, (success, failureReason) => {
