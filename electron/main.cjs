@@ -36,6 +36,32 @@ function getAssetPath(fileName) {
   return path.join(appRoot, 'dist', fileName);
 }
 
+function preparePrintableHtml(html, isLabel) {
+  const withoutScripts = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  if (isLabel) return withoutScripts;
+
+  const ticketResetStyle = `<style>
+    @page { margin: 0; }
+    html, body {
+      margin: 0 !important;
+      padding: 0 2mm 0 0 !important;
+      width: 100% !important;
+      max-width: 54mm !important;
+      box-sizing: border-box !important;
+      overflow-x: hidden !important;
+    }
+    * {
+      box-sizing: border-box !important;
+      max-width: 100% !important;
+    }
+  </style>`;
+
+  if (/<\/head>/i.test(withoutScripts)) {
+    return withoutScripts.replace(/<\/head>/i, `${ticketResetStyle}</head>`);
+  }
+  return `${ticketResetStyle}${withoutScripts}`;
+}
+
 function registerIpcHandlers() {
   ipcMain.handle('get-printers', async () => {
     if (!mainWindow || mainWindow.isDestroyed()) return [];
@@ -74,7 +100,7 @@ async function printHiddenHtml(html, options, waitForImages) {
       nodeIntegration: false,
     },
   });
-  const printableHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  const printableHtml = preparePrintableHtml(html, Boolean(waitForImages));
   const tempFile = path.join(os.tmpdir(), `pos-ticket-${Date.now()}.html`);
   fs.writeFileSync(tempFile, printableHtml, 'utf8');
 
@@ -125,7 +151,7 @@ async function printHiddenHtml(html, options, waitForImages) {
         heightMm > 0;
 
       const printOptions = {
-        silent: false,
+        silent: true,
         printBackground: Boolean(waitForImages),
         margins: { marginType: 'none' },
         ...(waitForImages && hasCustomLabelSize
@@ -137,6 +163,10 @@ async function printHiddenHtml(html, options, waitForImages) {
             }
           : {}),
       };
+
+      const rawPrinterName = typeof options?.printerName === 'string' ? options.printerName.trim() : '';
+      const cleanPrinterName = rawPrinterName.replace(/\s*\(predeterminada\)\s*$/i, '').trim();
+      if (cleanPrinterName) printOptions.deviceName = cleanPrinterName;
 
       try {
         printWindow.webContents.print(printOptions, (success, failureReason) => {
