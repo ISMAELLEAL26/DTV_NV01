@@ -1,5 +1,7 @@
 const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const isDev = !app.isPackaged;
@@ -73,7 +75,8 @@ async function printHiddenHtml(html, options, waitForImages) {
     },
   });
   const printableHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
-  const url = `data:text/html;charset=UTF-8,${encodeURIComponent(printableHtml)}`;
+  const tempFile = path.join(os.tmpdir(), `pos-ticket-${Date.now()}.html`);
+  fs.writeFileSync(tempFile, printableHtml, 'utf8');
 
   try {
     await new Promise((resolve, reject) => {
@@ -86,7 +89,7 @@ async function printHiddenHtml(html, options, waitForImages) {
         clearTimeout(timer);
         reject(new Error(`${errorCode}: ${errorDescription}`));
       });
-      printWindow.loadURL(url);
+      printWindow.loadFile(tempFile);
     });
 
     if (waitForImages) {
@@ -97,7 +100,7 @@ async function printHiddenHtml(html, options, waitForImages) {
         new Promise((resolve) => setTimeout(resolve, 2500)),
       ]);
     }
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -123,7 +126,7 @@ async function printHiddenHtml(html, options, waitForImages) {
 
       const printOptions = {
         silent: true,
-        printBackground: true,
+        printBackground: Boolean(waitForImages),
         margins: { marginType: 'none' },
         ...(waitForImages && hasCustomLabelSize
           ? {
@@ -149,6 +152,7 @@ async function printHiddenHtml(html, options, waitForImages) {
     });
   } finally {
     if (!printWindow.isDestroyed()) printWindow.close();
+    try { fs.unlinkSync(tempFile); } catch {}
   }
 }
 
