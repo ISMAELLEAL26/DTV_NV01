@@ -44,9 +44,10 @@ function preparePrintableHtml(html, isLabel) {
     @page { margin: 0; size: 58mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 3mm 0 1mm !important;
+      padding: 0 2mm !important;
       width: 54mm !important;
       max-width: 54mm !important;
+      zoom: 0.88 !important;
       box-sizing: border-box !important;
       background: #ffffff !important;
       color: #000000 !important;
@@ -119,13 +120,15 @@ async function printHiddenHtml(html, options, waitForImages) {
       printWindow.loadFile(tempFile);
     });
 
-    await Promise.race([
-      printWindow.webContents.executeJavaScript(
-        `Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`
-      ),
-      new Promise((resolve) => setTimeout(resolve, 2500)),
-    ]);
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    if (waitForImages) {
+      await Promise.race([
+        printWindow.webContents.executeJavaScript(
+          `Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`
+        ),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -151,7 +154,7 @@ async function printHiddenHtml(html, options, waitForImages) {
 
       const printOptions = {
         silent: true,
-        printBackground: true,
+        printBackground: Boolean(waitForImages),
         ...(waitForImages && hasCustomLabelSize
           ? {
               pageSize: {
