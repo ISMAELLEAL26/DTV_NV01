@@ -41,16 +41,17 @@ function preparePrintableHtml(html, isLabel) {
   if (isLabel) return withoutScripts;
 
   const ticketResetStyle = `<style>
-    @page { margin: 0; }
+    @page { margin: 0; size: 58mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 2mm 0 0 !important;
-      width: 100% !important;
+      padding: 0 3mm 0 1mm !important;
+      width: 54mm !important;
       max-width: 54mm !important;
       box-sizing: border-box !important;
-      overflow-x: hidden !important;
+      background: #ffffff !important;
+      color: #000000 !important;
     }
-    * {
+    table, tr, td, th, div, p, span {
       box-sizing: border-box !important;
       max-width: 100% !important;
     }
@@ -118,15 +119,13 @@ async function printHiddenHtml(html, options, waitForImages) {
       printWindow.loadFile(tempFile);
     });
 
-    if (waitForImages) {
-      await Promise.race([
-        printWindow.webContents.executeJavaScript(
-          `Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`
-        ),
-        new Promise((resolve) => setTimeout(resolve, 2500)),
-      ]);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await Promise.race([
+      printWindow.webContents.executeJavaScript(
+        `Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 700));
 
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -152,13 +151,19 @@ async function printHiddenHtml(html, options, waitForImages) {
 
       const printOptions = {
         silent: true,
-        printBackground: Boolean(waitForImages),
-        margins: { marginType: 'none' },
+        printBackground: true,
         ...(waitForImages && hasCustomLabelSize
           ? {
               pageSize: {
                 width: Math.round(widthMm * 1000),
                 height: Math.round(heightMm * 1000),
+              },
+            }
+          : !waitForImages
+          ? {
+              pageSize: {
+                width: 58000,
+                height: 297000,
               },
             }
           : {}),
