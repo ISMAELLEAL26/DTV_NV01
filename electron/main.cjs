@@ -125,7 +125,7 @@ async function printHiddenHtml(html, options, waitForImages) {
         heightMm > 0;
 
       const printOptions = {
-        silent: true,
+        silent: false,
         printBackground: Boolean(waitForImages),
         margins: { marginType: 'none' },
         ...(waitForImages && hasCustomLabelSize
