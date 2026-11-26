@@ -97,7 +97,7 @@ async function printHiddenHtml(html, options, waitForImages) {
         new Promise((resolve) => setTimeout(resolve, 2500)),
       ]);
     }
-    await new Promise((resolve) => setTimeout(resolve, waitForImages ? 250 : 300));
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -124,17 +124,13 @@ async function printHiddenHtml(html, options, waitForImages) {
       const printOptions = {
         silent: true,
         printBackground: true,
-        ...(waitForImages
+        margins: { marginType: 'none' },
+        ...(waitForImages && hasCustomLabelSize
           ? {
-              margins: { marginType: 'none' },
-              ...(hasCustomLabelSize
-                ? {
-                    pageSize: {
-                      width: Math.round(widthMm * 1000),
-                      height: Math.round(heightMm * 1000),
-                    },
-                  }
-                : {}),
+              pageSize: {
+                width: Math.round(widthMm * 1000),
+                height: Math.round(heightMm * 1000),
+              },
             }
           : {}),
       };
