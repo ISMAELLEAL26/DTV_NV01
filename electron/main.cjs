@@ -44,9 +44,9 @@ function preparePrintableHtml(html, isLabel) {
     @page { margin: 0; size: 58mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 1mm !important;
-      width: 49mm !important;
-      max-width: 49mm !important;
+      padding: 0 2.5mm 0 0.5mm !important;
+      width: 46.5mm !important;
+      max-width: 46.5mm !important;
       box-sizing: border-box !important;
       background: #ffffff !important;
       color: #000000 !important;
@@ -54,11 +54,11 @@ function preparePrintableHtml(html, isLabel) {
     }
     table, tr, td, th, div, p, span {
       box-sizing: border-box !important;
-      max-width: 49mm !important;
+      max-width: 46.5mm !important;
       word-break: break-word !important;
     }
     table {
-      width: 49mm !important;
+      width: 46.5mm !important;
       table-layout: fixed !important;
       border-collapse: collapse !important;
     }
