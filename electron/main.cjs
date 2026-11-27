@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
+let printWindow = null;
 let updateDownloaded = false;
 
 function sendUpdateStatus(status, details = {}) {
@@ -36,6 +37,21 @@ function getAssetPath(fileName) {
   return path.join(appRoot, 'dist', fileName);
 }
 
+function getPrintWindow() {
+  if (printWindow && !printWindow.isDestroyed()) return printWindow;
+  printWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  printWindow.on('closed', () => {
+    printWindow = null;
+  });
+  return printWindow;
+}
+
 function preparePrintableHtml(html, isLabel) {
   const withoutScripts = html.replace(/<script[\s\S]*?<\/script>/gi, '');
   if (isLabel) return withoutScripts;
@@ -44,10 +60,9 @@ function preparePrintableHtml(html, isLabel) {
     @page { margin: 0; size: 58mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 2mm !important;
-      width: 54mm !important;
-      max-width: 54mm !important;
-      zoom: 0.88 !important;
+      padding: 0 1mm !important;
+      width: 100% !important;
+      max-width: 100% !important;
       box-sizing: border-box !important;
       background: #ffffff !important;
       color: #000000 !important;
@@ -95,40 +110,33 @@ function registerIpcHandlers() {
 }
 
 async function printHiddenHtml(html, options, waitForImages) {
-  const printWindow = new BrowserWindow({
-    show: false,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
+  const win = getPrintWindow();
   const printableHtml = preparePrintableHtml(html, Boolean(waitForImages));
   const tempFile = path.join(os.tmpdir(), `pos-ticket-${Date.now()}.html`);
   fs.writeFileSync(tempFile, printableHtml, 'utf8');
 
   try {
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Tiempo de espera agotado al cargar el documento de impresión.')), 8000);
-      printWindow.webContents.once('did-finish-load', () => {
+      const timer = setTimeout(() => reject(new Error('Tiempo de espera agotado al cargar el documento de impresión.')), 4000);
+      win.webContents.once('did-finish-load', () => {
         clearTimeout(timer);
         resolve();
       });
-      printWindow.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => {
+      win.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => {
         clearTimeout(timer);
         reject(new Error(`${errorCode}: ${errorDescription}`));
       });
-      printWindow.loadFile(tempFile);
+      win.loadFile(tempFile);
     });
 
     if (waitForImages) {
       await Promise.race([
-        printWindow.webContents.executeJavaScript(
+        win.webContents.executeJavaScript(
           `Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`
         ),
-        new Promise((resolve) => setTimeout(resolve, 1500)),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
       ]);
     }
-    await new Promise((resolve) => setTimeout(resolve, 150));
 
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -141,7 +149,7 @@ async function printHiddenHtml(html, options, waitForImages) {
       };
       const printTimer = setTimeout(() => {
         done(new Error('La impresora no confirmó la impresión a tiempo. Revisa su estado o cola.'));
-      }, 10000);
+      }, 8000);
 
       const widthMm = Number(options?.width);
       const heightMm = Number(options?.height);
@@ -154,7 +162,7 @@ async function printHiddenHtml(html, options, waitForImages) {
 
       const printOptions = {
         silent: true,
-        printBackground: Boolean(waitForImages),
+        printBackground: true,
         ...(waitForImages && hasCustomLabelSize
           ? {
               pageSize: {
@@ -177,7 +185,7 @@ async function printHiddenHtml(html, options, waitForImages) {
       if (cleanPrinterName) printOptions.deviceName = cleanPrinterName;
 
       try {
-        printWindow.webContents.print(printOptions, (success, failureReason) => {
+        win.webContents.print(printOptions, (success, failureReason) => {
           if (success) done();
           else done(new Error(failureReason || 'No se pudo enviar el trabajo a la impresora.'));
         });
@@ -186,7 +194,6 @@ async function printHiddenHtml(html, options, waitForImages) {
       }
     });
   } finally {
-    if (!printWindow.isDestroyed()) printWindow.close();
     try { fs.unlinkSync(tempFile); } catch {}
   }
 }
