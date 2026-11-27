@@ -40,6 +40,8 @@ function getAssetPath(fileName) {
 function getPrintWindow() {
   if (printWindow && !printWindow.isDestroyed()) return printWindow;
   printWindow = new BrowserWindow({
+    width: 220,
+    height: 600,
     show: false,
     webPreferences: {
       contextIsolation: true,
@@ -57,19 +59,33 @@ function preparePrintableHtml(html, isLabel) {
   if (isLabel) return withoutScripts;
 
   const ticketResetStyle = `<style>
-    @page { margin: 0; size: 58mm auto; }
+    @page { margin: 0; size: 50mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 1mm !important;
-      width: 100% !important;
-      max-width: 100% !important;
+      padding: 0 !important;
+      width: 48mm !important;
+      max-width: 48mm !important;
       box-sizing: border-box !important;
       background: #ffffff !important;
       color: #000000 !important;
+      overflow-x: hidden !important;
+      word-wrap: break-word !important;
+      overflow-wrap: break-word !important;
     }
-    table, tr, td, th, div, p, span {
+    *, *::before, *::after {
       box-sizing: border-box !important;
-      max-width: 100% !important;
+      max-width: 48mm !important;
+    }
+    table {
+      width: 48mm !important;
+      max-width: 48mm !important;
+      table-layout: fixed !important;
+      border-collapse: collapse !important;
+    }
+    th, td {
+      padding-left: 0.5mm !important;
+      padding-right: 0.5mm !important;
+      word-break: break-word !important;
     }
   </style>`;
 
@@ -163,6 +179,7 @@ async function printHiddenHtml(html, options, waitForImages) {
       const printOptions = {
         silent: true,
         printBackground: true,
+        margins: { marginType: 'none' },
         ...(waitForImages && hasCustomLabelSize
           ? {
               pageSize: {
@@ -173,7 +190,7 @@ async function printHiddenHtml(html, options, waitForImages) {
           : !waitForImages
           ? {
               pageSize: {
-                width: 58000,
+                width: 50000,
                 height: 297000,
               },
             }
