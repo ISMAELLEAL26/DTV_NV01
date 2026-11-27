@@ -61,6 +61,14 @@ function formatTicketTextFor58mm(html) {
   // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
   formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
 
+  // Eliminar renglones o celdas huérfanas que contengan solo "0" o "0 mo"
+  formatted = formatted.replace(
+    /(<(?:div|p|span|td|th|tr|li)[^>]*>)\s*0(?:\s*mo)?\s*(<\/(?:div|p|span|td|th|tr|li)>)/gi,
+    ''
+  );
+  formatted = formatted.replace(/(<br\s*\/?>\s*)+0(?:\s*mo)?(?=\s*(?:<br\s*\/?>|<\/|$))/gi, '');
+  formatted = formatted.replace(/(^|>)\s*0\s+mo\s*(<|$)/gi, '$1$2');
+
   return formatted;
 }
 
