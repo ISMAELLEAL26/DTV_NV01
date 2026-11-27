@@ -71,8 +71,10 @@ function formatTicketTextFor58mm(html) {
     ''
   );
 
-  // Colapsar saltos <br> repetidos (2 o más) sin borrar separadores
-  formatted = formatted.replace(/(?:<br\s*\/?>\s*){2,}/gi, '<br>');
+  // Eliminar caracteres invisibles/espacios en blanco sueltos que crean renglones vacíos
+  formatted = formatted.replace(/&nbsp;|&#160;|\u00a0|\u200b/gi, ' ');
+  formatted = formatted.replace(/<(div|p|span|td|th|tr|li)([^>]*)>[\s\r\n]*<\/\1>/gi, '');
+  formatted = formatted.replace(/(?:<br\s*\/?>[\s\r\n]*){2,}/gi, '<br>');
 
   return formatted;
 }
@@ -126,7 +128,7 @@ function preparePrintableHtml(html, isLabel) {
       background: #ffffff !important;
       color: #000000 !important;
       overflow-x: hidden !important;
-      line-height: 1.15 !important;
+      line-height: 1.1 !important;
     }
     *, *::before, *::after {
       box-sizing: border-box !important;
