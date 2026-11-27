@@ -6,7 +6,6 @@ const path = require('node:path');
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
-let printWindow = null;
 let updateDownloaded = false;
 
 function sendUpdateStatus(status, details = {}) {
@@ -37,55 +36,31 @@ function getAssetPath(fileName) {
   return path.join(appRoot, 'dist', fileName);
 }
 
-function getPrintWindow() {
-  if (printWindow && !printWindow.isDestroyed()) return printWindow;
-  printWindow = new BrowserWindow({
-    width: 220,
-    height: 600,
-    show: false,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-  printWindow.on('closed', () => {
-    printWindow = null;
-  });
-  return printWindow;
-}
-
 function preparePrintableHtml(html, isLabel) {
   const withoutScripts = html.replace(/<script[\s\S]*?<\/script>/gi, '');
   if (isLabel) return withoutScripts;
 
   const ticketResetStyle = `<style>
-    @page { margin: 0; size: 50mm auto; }
+    @page { margin: 0; size: 58mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 !important;
-      width: 48mm !important;
-      max-width: 48mm !important;
+      padding: 0 1mm !important;
+      width: 49mm !important;
+      max-width: 49mm !important;
       box-sizing: border-box !important;
       background: #ffffff !important;
       color: #000000 !important;
       overflow-x: hidden !important;
-      word-wrap: break-word !important;
-      overflow-wrap: break-word !important;
     }
-    *, *::before, *::after {
+    table, tr, td, th, div, p, span {
       box-sizing: border-box !important;
-      max-width: 48mm !important;
+      max-width: 49mm !important;
+      word-break: break-word !important;
     }
     table {
-      width: 48mm !important;
-      max-width: 48mm !important;
+      width: 49mm !important;
       table-layout: fixed !important;
       border-collapse: collapse !important;
-    }
-    th, td {
-      padding-left: 0.5mm !important;
-      padding-right: 0.5mm !important;
-      word-break: break-word !important;
     }
   </style>`;
 
@@ -126,33 +101,40 @@ function registerIpcHandlers() {
 }
 
 async function printHiddenHtml(html, options, waitForImages) {
-  const win = getPrintWindow();
+  const printWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
   const printableHtml = preparePrintableHtml(html, Boolean(waitForImages));
   const tempFile = path.join(os.tmpdir(), `pos-ticket-${Date.now()}.html`);
   fs.writeFileSync(tempFile, printableHtml, 'utf8');
 
   try {
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Tiempo de espera agotado al cargar el documento de impresión.')), 4000);
-      win.webContents.once('did-finish-load', () => {
+      const timer = setTimeout(() => reject(new Error('Tiempo de espera agotado al cargar el documento de impresión.')), 5000);
+      printWindow.webContents.once('did-finish-load', () => {
         clearTimeout(timer);
         resolve();
       });
-      win.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => {
+      printWindow.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => {
         clearTimeout(timer);
         reject(new Error(`${errorCode}: ${errorDescription}`));
       });
-      win.loadFile(tempFile);
+      printWindow.loadFile(tempFile);
     });
 
     if (waitForImages) {
       await Promise.race([
-        win.webContents.executeJavaScript(
+        printWindow.webContents.executeJavaScript(
           `Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : new Promise((resolve) => { image.addEventListener('load', resolve, { once: true }); image.addEventListener('error', resolve, { once: true }); })))`
         ),
         new Promise((resolve) => setTimeout(resolve, 1000)),
       ]);
     }
+    await new Promise((resolve) => setTimeout(resolve, 120));
 
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -179,7 +161,6 @@ async function printHiddenHtml(html, options, waitForImages) {
       const printOptions = {
         silent: true,
         printBackground: true,
-        margins: { marginType: 'none' },
         ...(waitForImages && hasCustomLabelSize
           ? {
               pageSize: {
@@ -190,7 +171,7 @@ async function printHiddenHtml(html, options, waitForImages) {
           : !waitForImages
           ? {
               pageSize: {
-                width: 50000,
+                width: 58000,
                 height: 297000,
               },
             }
@@ -202,7 +183,7 @@ async function printHiddenHtml(html, options, waitForImages) {
       if (cleanPrinterName) printOptions.deviceName = cleanPrinterName;
 
       try {
-        win.webContents.print(printOptions, (success, failureReason) => {
+        printWindow.webContents.print(printOptions, (success, failureReason) => {
           if (success) done();
           else done(new Error(failureReason || 'No se pudo enviar el trabajo a la impresora.'));
         });
@@ -211,6 +192,7 @@ async function printHiddenHtml(html, options, waitForImages) {
       }
     });
   } finally {
+    if (!printWindow.isDestroyed()) printWindow.close();
     try { fs.unlinkSync(tempFile); } catch {}
   }
 }
