@@ -64,23 +64,15 @@ function formatTicketTextFor58mm(html) {
   // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
   formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
 
-  // Reemplazar <hr> y líneas de guiones (---) por separador =============================
+  // Reemplazar <hr> y bloques que solo contienen guiones/iguales por separador en fuente normal
   const sepBlock = `<div class="ticket-sep">${TICKET_SEPARATOR}</div>`;
   formatted = formatted.replace(/<hr\b[^>]*\/?>/gi, sepBlock);
-  formatted = formatted.replace(/(?:^|>|\s)-{3,}(?=<|\s|$)/g, (match) => {
-    if (match.startsWith('>')) return `>${sepBlock}`;
-    return sepBlock;
-  });
+  formatted = formatted.replace(
+    /<(div|p|span|td|th|tr|li)([^>]*)>\s*[-=]{3,}\s*<\/\1>/gi,
+    sepBlock
+  );
 
-  // Asegurar separadores en las secciones clave del ticket si no existían
-  if (!formatted.includes(TICKET_SEPARATOR)) {
-    formatted = formatted.replace(/(000-000-0000[\s\S]{0,60}?<\/(?:div|p|span|td|th|tr)>)/i, `$1${sepBlock}`);
-    formatted = formatted.replace(/(Cliente:[\s\S]{0,140}?<\/(?:div|p|span|td|th|tr)>)/i, `$1${sepBlock}`);
-    formatted = formatted.replace(/(IMP[\s\S]{0,120}?<\/(?:div|p|span|td|th|tr)>)/i, `$1${sepBlock}`);
-    formatted = formatted.replace(/(<[^>]*>\s*TOTAL\b)/i, `${sepBlock}$1`);
-  }
-
-  // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP sin borrar el separador
+  // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP sin tocar el separador
   formatted = formatted.replace(/IMP\s*<([a-z0-9]+)([^>]*)>\s*IO\s*<\/\1>/gi, 'IMP');
   formatted = formatted.replace(/(IMP[\s\S]{0,160}?)<([a-z0-9]+)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\2>/gi, '$1');
   formatted = formatted.replace(
@@ -156,11 +148,12 @@ function preparePrintableHtml(html, isLabel) {
     }
     .ticket-sep {
       width: 100% !important;
-      overflow: hidden !important;
-      white-space: nowrap !important;
-      font-size: 0.72em !important;
-      letter-spacing: -0.5px !important;
+      font-weight: 400 !important;
+      font-size: 0.78em !important;
       line-height: 1.05 !important;
+      letter-spacing: 0 !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
       margin: 1px 0 !important;
       padding: 0 !important;
     }
