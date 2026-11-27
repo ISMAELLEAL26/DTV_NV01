@@ -115,7 +115,7 @@ function preparePrintableHtml(html, isLabel) {
     @page { margin: 0; size: 58mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 2mm !important;
+      padding: 0 2mm 0 4.5mm !important;
       width: 100% !important;
       max-width: 54mm !important;
       box-sizing: border-box !important;
