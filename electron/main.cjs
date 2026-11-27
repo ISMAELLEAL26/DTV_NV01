@@ -7,7 +7,6 @@ const path = require('node:path');
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let updateDownloaded = false;
-const TICKET_SEPARATOR = '=============================';
 
 function sendUpdateStatus(status, details = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -64,25 +63,17 @@ function formatTicketTextFor58mm(html) {
   // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
   formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
 
-  // Reemplazar <hr> y bloques que solo contienen guiones/iguales por separador en fuente normal
-  const sepBlock = `<div class="ticket-sep">${TICKET_SEPARATOR}</div>`;
-  formatted = formatted.replace(/<hr\b[^>]*\/?>/gi, sepBlock);
-  formatted = formatted.replace(
-    /<(div|p|span|td|th|tr|li)([^>]*)>\s*[-=]{3,}\s*<\/\1>/gi,
-    sepBlock
-  );
-
-  // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP sin tocar el separador
+  // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP
   formatted = formatted.replace(/IMP\s*<([a-z0-9]+)([^>]*)>\s*IO\s*<\/\1>/gi, 'IMP');
   formatted = formatted.replace(/(IMP[\s\S]{0,160}?)<([a-z0-9]+)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\2>/gi, '$1');
   formatted = formatted.replace(
-    /<(div|p|span|td|th|tr|li|strong|b|small|font)(?![^>]*class=["'][^"']*ticket-sep)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\1>/gi,
+    /<(div|p|span|td|th|tr|li|strong|b|small|font)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\1>/gi,
     ''
   );
 
   // Eliminar caracteres invisibles/espacios en blanco sueltos que crean renglones vacíos
   formatted = formatted.replace(/&nbsp;|&#160;|\u00a0|\u200b/gi, ' ');
-  formatted = formatted.replace(/<(div|p|span|td|th|tr|li)(?![^>]*class=["'][^"']*ticket-sep)([^>]*)>[\s\r\n]*<\/\1>/gi, '');
+  formatted = formatted.replace(/<(div|p|span|td|th|tr|li)([^>]*)>[\s\r\n]*<\/\1>/gi, '');
   formatted = formatted.replace(/(?:<br\s*\/?>[\s\r\n]*){2,}/gi, '<br>');
 
   return formatted;
@@ -137,7 +128,7 @@ function preparePrintableHtml(html, isLabel) {
       background: #ffffff !important;
       color: #000000 !important;
       overflow-x: hidden !important;
-      line-height: 1.1 !important;
+      line-height: 1.08 !important;
     }
     *, *::before, *::after {
       box-sizing: border-box !important;
@@ -146,28 +137,23 @@ function preparePrintableHtml(html, isLabel) {
       margin-bottom: 0 !important;
       word-break: break-word !important;
     }
-    .ticket-sep {
-      width: 100% !important;
-      font-weight: 400 !important;
-      font-size: 0.78em !important;
-      line-height: 1.05 !important;
-      letter-spacing: 0 !important;
-      white-space: nowrap !important;
-      overflow: hidden !important;
+    hr {
+      border: 0 !important;
+      border-top: 1px dashed #000000 !important;
+      height: 0 !important;
       margin: 1px 0 !important;
       padding: 0 !important;
-    }
-    hr {
-      display: none !important;
     }
     table {
       width: 100% !important;
       table-layout: fixed !important;
       border-collapse: collapse !important;
     }
-    th, td {
+    th, td, tr {
       padding-top: 0 !important;
       padding-bottom: 0 !important;
+      margin-top: 0 !important;
+      margin-bottom: 0 !important;
     }
     .no-wrap-line {
       white-space: nowrap !important;
