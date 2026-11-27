@@ -61,13 +61,13 @@ function formatTicketTextFor58mm(html) {
   // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
   formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
 
-  // Eliminar renglones o celdas huérfanas que contengan solo "0" o "0 mo"
+  // Quitar "0" o "0 mo" suelto tras IMPO o en bloques/renglones aislados
+  formatted = formatted.replace(/(IMPO[\s\S]{0,120}?)(?:>\s*0(?:\s*mo)?\s*<|>\s*0(?:\s*mo)?\b|\b0\s+mo\b)/gi, '$1');
   formatted = formatted.replace(
-    /(<(?:div|p|span|td|th|tr|li)[^>]*>)\s*0(?:\s*mo)?\s*(<\/(?:div|p|span|td|th|tr|li)>)/gi,
+    /<(div|p|span|td|th|tr|li|strong|b|small)([^>]*)>\s*0(?:\s*mo)?\s*<\/\1>/gi,
     ''
   );
-  formatted = formatted.replace(/(<br\s*\/?>\s*)+0(?:\s*mo)?(?=\s*(?:<br\s*\/?>|<\/|$))/gi, '');
-  formatted = formatted.replace(/(^|>)\s*0\s+mo\s*(<|$)/gi, '$1$2');
+  formatted = formatted.replace(/(?:<br\s*\/?>|\n|\r)+[\s\u00a0]*0(?:\s*mo)?[\s\u00a0]*(?=(?:<br\s*\/?>|\n|\r|<\/|$))/gi, '');
 
   return formatted;
 }
@@ -256,7 +256,7 @@ async function printHiddenHtml(html, options, waitForImages) {
           : {
               pageSize: {
                 width: 58000,
-                height: 297000,
+                height: 150000,
               },
             }),
       };
