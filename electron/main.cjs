@@ -39,7 +39,7 @@ function getAssetPath(fileName) {
 function formatTicketTextFor58mm(html) {
   let formatted = html;
 
-  // Quitar etiqueta "Venta:" y dejar fecha y hora en un solo renglón (ej. 26/11/2026, 07:10:54PM)
+  // Quitar etiqueta "Venta:" y dejar fecha y hora en un solo renglón
   formatted = formatted.replace(/\bVenta\s*:\s*/gi, '');
   formatted = formatted.replace(
     /(\d{1,2}\/\d{1,2}\/\d{4}),\s*(\d{1,2}:\d{2}:\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?|AM|PM)/gi,
@@ -55,12 +55,12 @@ function formatTicketTextFor58mm(html) {
   formatted = formatted.replace(/\bVendedor\s*:/gi, 'UPV:');
   formatted = formatted.replace(/\bFolio\s*:/gi, 'F:');
 
-  // Abreviar encabezados PRECIO -> PREC e IMPORTE/IMPO -> IMP en un solo renglón
+  // Abreviar encabezados PRECIO -> PREC e IMPORTE/IMPO -> IMP
   formatted = formatted.replace(/\bPRECIO\b/gi, 'PREC');
   formatted = formatted.replace(/\bIMPORTE\b/gi, 'IMP');
   formatted = formatted.replace(/\bIMPO\b/gi, 'IMP');
 
-  // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
+  // Quitar decimales ".00" en importes monetarios (ej. $1000.00 -> $1000)
   formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
 
   // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP
@@ -128,7 +128,7 @@ function preparePrintableHtml(html, isLabel) {
       background: #ffffff !important;
       color: #000000 !important;
       overflow-x: hidden !important;
-      line-height: 1.08 !important;
+      line-height: 1.12 !important;
     }
     *, *::before, *::after {
       box-sizing: border-box !important;
@@ -141,7 +141,7 @@ function preparePrintableHtml(html, isLabel) {
       border: 0 !important;
       border-top: 1px dashed #000000 !important;
       height: 0 !important;
-      margin: 1px 0 !important;
+      margin: 2px 0 !important;
       padding: 0 !important;
     }
     table {
