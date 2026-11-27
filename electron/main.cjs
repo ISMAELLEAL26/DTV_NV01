@@ -72,9 +72,41 @@ function formatTicketTextFor58mm(html) {
   return formatted;
 }
 
+function prepareLabelStripHtml(html) {
+  const labelStyle = `<style>
+    @page { margin: 0; size: 55mm auto; }
+    html, body {
+      margin: 0 !important;
+      padding: 0 1.5mm !important;
+      width: 52mm !important;
+      max-width: 52mm !important;
+      box-sizing: border-box !important;
+      background: #ffffff !important;
+      color: #000000 !important;
+      overflow-x: hidden !important;
+    }
+    *, *::before, *::after {
+      box-sizing: border-box !important;
+      max-width: 52mm !important;
+      word-break: break-word !important;
+    }
+    .label-strip, .labels-strip, .etiqueta-tira, .label-item, .etiqueta {
+      width: 52mm !important;
+      max-width: 52mm !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+  </style>`;
+
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${labelStyle}</head>`);
+  }
+  return `${labelStyle}${html}`;
+}
+
 function preparePrintableHtml(html, isLabel) {
   const withoutScripts = html.replace(/<script[\s\S]*?<\/script>/gi, '');
-  if (isLabel) return withoutScripts;
+  if (isLabel) return prepareLabelStripHtml(withoutScripts);
 
   const formattedHtml = formatTicketTextFor58mm(withoutScripts);
 
@@ -201,6 +233,9 @@ async function printHiddenHtml(html, options, waitForImages) {
         widthMm > 0 &&
         heightMm > 0;
 
+      const labelHeightMm =
+        Number.isFinite(heightMm) && heightMm > 0 ? heightMm : 297;
+
       const printOptions = {
         silent: true,
         printBackground: true,
@@ -211,14 +246,19 @@ async function printHiddenHtml(html, options, waitForImages) {
                 height: Math.round(heightMm * 1000),
               },
             }
-          : !waitForImages
+          : waitForImages
           ? {
+              pageSize: {
+                width: 55000,
+                height: Math.round(labelHeightMm * 1000),
+              },
+            }
+          : {
               pageSize: {
                 width: 58000,
                 height: 297000,
               },
-            }
-          : {}),
+            }),
       };
 
       const rawPrinterName = typeof options?.printerName === 'string' ? options.printerName.trim() : '';
