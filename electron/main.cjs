@@ -7,6 +7,7 @@ const path = require('node:path');
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let updateDownloaded = false;
+const TICKET_SEPARATOR = '=============================';
 
 function sendUpdateStatus(status, details = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -63,17 +64,33 @@ function formatTicketTextFor58mm(html) {
   // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
   formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
 
-  // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP sin tocar líneas separadoras (--- o <hr>)
+  // Reemplazar <hr> y líneas de guiones (---) por separador =============================
+  const sepBlock = `<div class="ticket-sep">${TICKET_SEPARATOR}</div>`;
+  formatted = formatted.replace(/<hr\b[^>]*\/?>/gi, sepBlock);
+  formatted = formatted.replace(/(?:^|>|\s)-{3,}(?=<|\s|$)/g, (match) => {
+    if (match.startsWith('>')) return `>${sepBlock}`;
+    return sepBlock;
+  });
+
+  // Asegurar separadores en las secciones clave del ticket si no existían
+  if (!formatted.includes(TICKET_SEPARATOR)) {
+    formatted = formatted.replace(/(000-000-0000[\s\S]{0,60}?<\/(?:div|p|span|td|th|tr)>)/i, `$1${sepBlock}`);
+    formatted = formatted.replace(/(Cliente:[\s\S]{0,140}?<\/(?:div|p|span|td|th|tr)>)/i, `$1${sepBlock}`);
+    formatted = formatted.replace(/(IMP[\s\S]{0,120}?<\/(?:div|p|span|td|th|tr)>)/i, `$1${sepBlock}`);
+    formatted = formatted.replace(/(<[^>]*>\s*TOTAL\b)/i, `${sepBlock}$1`);
+  }
+
+  // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP sin borrar el separador
   formatted = formatted.replace(/IMP\s*<([a-z0-9]+)([^>]*)>\s*IO\s*<\/\1>/gi, 'IMP');
   formatted = formatted.replace(/(IMP[\s\S]{0,160}?)<([a-z0-9]+)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\2>/gi, '$1');
   formatted = formatted.replace(
-    /<(div|p|span|td|th|tr|li|strong|b|small|font)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\1>/gi,
+    /<(div|p|span|td|th|tr|li|strong|b|small|font)(?![^>]*class=["'][^"']*ticket-sep)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\1>/gi,
     ''
   );
 
   // Eliminar caracteres invisibles/espacios en blanco sueltos que crean renglones vacíos
   formatted = formatted.replace(/&nbsp;|&#160;|\u00a0|\u200b/gi, ' ');
-  formatted = formatted.replace(/<(div|p|span|td|th|tr|li)([^>]*)>[\s\r\n]*<\/\1>/gi, '');
+  formatted = formatted.replace(/<(div|p|span|td|th|tr|li)(?![^>]*class=["'][^"']*ticket-sep)([^>]*)>[\s\r\n]*<\/\1>/gi, '');
   formatted = formatted.replace(/(?:<br\s*\/?>[\s\r\n]*){2,}/gi, '<br>');
 
   return formatted;
@@ -137,12 +154,18 @@ function preparePrintableHtml(html, isLabel) {
       margin-bottom: 0 !important;
       word-break: break-word !important;
     }
-    hr {
-      border: 0 !important;
-      border-top: 1px dashed #000000 !important;
-      height: 0 !important;
-      margin: 2px 0 !important;
+    .ticket-sep {
+      width: 100% !important;
+      overflow: hidden !important;
+      white-space: nowrap !important;
+      font-size: 0.72em !important;
+      letter-spacing: -0.5px !important;
+      line-height: 1.05 !important;
+      margin: 1px 0 !important;
       padding: 0 !important;
+    }
+    hr {
+      display: none !important;
     }
     table {
       width: 100% !important;
