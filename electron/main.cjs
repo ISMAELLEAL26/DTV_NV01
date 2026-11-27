@@ -55,20 +55,23 @@ function formatTicketTextFor58mm(html) {
   formatted = formatted.replace(/\bVendedor\s*:/gi, 'UPV:');
   formatted = formatted.replace(/\bFolio\s*:/gi, 'F:');
 
-  // Abreviar encabezado de importe a "IMPO"
-  formatted = formatted.replace(/\bIMPORTE\b/gi, 'IMPO');
+  // Abreviar encabezados PRECIO -> PREC e IMPORTE/IMPO -> IMP en un solo renglón
+  formatted = formatted.replace(/\bPRECIO\b/gi, 'PREC');
+  formatted = formatted.replace(/\bIMPORTE\b/gi, 'IMP');
+  formatted = formatted.replace(/\bIMPO\b/gi, 'IMP');
 
   // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
   formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
 
-  // Quitar "0" o "0 mo" suelto en etiquetas/renglones/celdas tras IMPO
-  formatted = formatted.replace(/(IMPO[\s\S]{0,220}?)<([a-z0-9]+)([^>]*)>\s*0(?:\s*mo)?\s*<\/\2>/gi, '$1');
-  formatted = formatted.replace(/(IMPO[\s\S]{0,220}?)(?:<br\s*\/?>|\n|\r)+\s*0(?:\s*mo)?\s*(?=(?:<br\s*\/?>|\n|\r|<\/))/gi, '$1');
+  // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP o vacíos
+  formatted = formatted.replace(/IMP\s*<([a-z0-9]+)([^>]*)>\s*IO\s*<\/\1>/gi, 'IMP');
+  formatted = formatted.replace(/(IMP[\s\S]{0,220}?)<([a-z0-9]+)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\2>/gi, '$1');
+  formatted = formatted.replace(/(IMP[\s\S]{0,220}?)(?:<br\s*\/?>|\n|\r)+\s*(?:0(?:\s*mo)?|IO)\s*(?=(?:<br\s*\/?>|\n|\r|<\/))/gi, '$1');
   formatted = formatted.replace(
-    /<(div|p|span|td|th|tr|li|strong|b|small|font)([^>]*)>\s*0(?:\s*mo)?\s*<\/\1>/gi,
+    /<(div|p|span|td|th|tr|li|strong|b|small|font)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\1>/gi,
     ''
   );
-  formatted = formatted.replace(/(?:<br\s*\/?>|\n|\r)+[\s\u00a0]*0(?:\s*mo)?[\s\u00a0]*(?=(?:<br\s*\/?>|\n|\r|<\/|$))/gi, '');
+  formatted = formatted.replace(/(?:<br\s*\/?>|\n|\r)+[\s\u00a0]*(?:0(?:\s*mo)?|IO)[\s\u00a0]*(?=(?:<br\s*\/?>|\n|\r|<\/|$))/gi, '');
 
   return formatted;
 }
@@ -115,7 +118,7 @@ function preparePrintableHtml(html, isLabel) {
     @page { margin: 0; size: 58mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 2mm 0 4.5mm !important;
+      padding: 0 2mm 0 2.5mm !important;
       width: 100% !important;
       max-width: 54mm !important;
       box-sizing: border-box !important;
