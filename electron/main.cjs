@@ -36,17 +36,47 @@ function getAssetPath(fileName) {
   return path.join(appRoot, 'dist', fileName);
 }
 
+function formatTicketTextFor58mm(html) {
+  let formatted = html;
+
+  // Quitar etiqueta "Venta:" y dejar fecha y hora en un solo renglón (ej. 26/11/2026, 07:10:54PM)
+  formatted = formatted.replace(/\bVenta\s*:\s*/gi, '');
+  formatted = formatted.replace(
+    /(\d{1,2}\/\d{1,2}\/\d{4}),\s*(\d{1,2}:\d{2}:\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?|AM|PM)/gi,
+    (_match, fecha, hora, meridiano) => {
+      const [hh, mm, ss] = hora.split(':');
+      const hh2 = String(hh).padStart(2, '0');
+      const merClean = meridiano.replace(/[^apmap]/gi, '').toUpperCase();
+      return `<span class="no-wrap-line">${fecha}, ${hh2}:${mm}:${ss}${merClean}</span>`;
+    }
+  );
+
+  // Abreviar "Vendedor:" -> "UPV:" y "Folio:" -> "F:"
+  formatted = formatted.replace(/\bVendedor\s*:/gi, 'UPV:');
+  formatted = formatted.replace(/\bFolio\s*:/gi, 'F:');
+
+  // Abreviar encabezado de importe a "IMPO"
+  formatted = formatted.replace(/\bIMPORTE\b/gi, 'IMPO');
+
+  // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
+  formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
+
+  return formatted;
+}
+
 function preparePrintableHtml(html, isLabel) {
   const withoutScripts = html.replace(/<script[\s\S]*?<\/script>/gi, '');
   if (isLabel) return withoutScripts;
+
+  const formattedHtml = formatTicketTextFor58mm(withoutScripts);
 
   const ticketResetStyle = `<style>
     @page { margin: 0; size: 58mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 2.5mm 0 0.5mm !important;
-      width: 46.5mm !important;
-      max-width: 46.5mm !important;
+      padding: 0 2mm 0 1mm !important;
+      width: 45mm !important;
+      max-width: 45mm !important;
       box-sizing: border-box !important;
       background: #ffffff !important;
       color: #000000 !important;
@@ -54,20 +84,25 @@ function preparePrintableHtml(html, isLabel) {
     }
     table, tr, td, th, div, p, span {
       box-sizing: border-box !important;
-      max-width: 46.5mm !important;
+      max-width: 45mm !important;
       word-break: break-word !important;
     }
     table {
-      width: 46.5mm !important;
+      width: 45mm !important;
       table-layout: fixed !important;
       border-collapse: collapse !important;
     }
+    .no-wrap-line {
+      white-space: nowrap !important;
+      display: inline-block !important;
+      font-size: 0.9em !important;
+    }
   </style>`;
 
-  if (/<\/head>/i.test(withoutScripts)) {
-    return withoutScripts.replace(/<\/head>/i, `${ticketResetStyle}</head>`);
+  if (/<\/head>/i.test(formattedHtml)) {
+    return formattedHtml.replace(/<\/head>/i, `${ticketResetStyle}</head>`);
   }
-  return `${ticketResetStyle}${withoutScripts}`;
+  return `${ticketResetStyle}${formattedHtml}`;
 }
 
 function registerIpcHandlers() {
