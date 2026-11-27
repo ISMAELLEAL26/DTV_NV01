@@ -73,6 +73,10 @@ function formatTicketTextFor58mm(html) {
   );
   formatted = formatted.replace(/(?:<br\s*\/?>|\n|\r)+[\s\u00a0]*(?:0(?:\s*mo)?|IO)[\s\u00a0]*(?=(?:<br\s*\/?>|\n|\r|<\/|$))/gi, '');
 
+  // Eliminar elementos o saltos de línea vacíos que generan espacios verticales extra
+  formatted = formatted.replace(/<(div|p|span|td|th|tr|li)([^>]*)>[\s\u00a0]*<\/\1>/gi, '');
+  formatted = formatted.replace(/(?:<br\s*\/?>\s*){2,}/gi, '<br>');
+
   return formatted;
 }
 
@@ -125,16 +129,23 @@ function preparePrintableHtml(html, isLabel) {
       background: #ffffff !important;
       color: #000000 !important;
       overflow-x: hidden !important;
+      line-height: 1.15 !important;
     }
     *, *::before, *::after {
       box-sizing: border-box !important;
       max-width: 100% !important;
+      margin-top: 0 !important;
+      margin-bottom: 0 !important;
       word-break: break-word !important;
     }
     table {
       width: 100% !important;
       table-layout: fixed !important;
       border-collapse: collapse !important;
+    }
+    th, td {
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
     }
     .no-wrap-line {
       white-space: nowrap !important;
@@ -243,6 +254,7 @@ async function printHiddenHtml(html, options, waitForImages) {
       const printOptions = {
         silent: true,
         printBackground: true,
+        scaleFactor: 100,
         ...(waitForImages && hasCustomLabelSize
           ? {
               pageSize: {
@@ -260,7 +272,7 @@ async function printHiddenHtml(html, options, waitForImages) {
           : {
               pageSize: {
                 width: 58000,
-                height: 80000,
+                height: 60000,
               },
             }),
       };
