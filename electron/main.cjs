@@ -63,18 +63,15 @@ function formatTicketTextFor58mm(html) {
   // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
   formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
 
-  // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP o vacíos
+  // Quitar "0", "0 mo" o "IO" suelto en renglones/celdas tras IMP sin tocar líneas separadoras (--- o <hr>)
   formatted = formatted.replace(/IMP\s*<([a-z0-9]+)([^>]*)>\s*IO\s*<\/\1>/gi, 'IMP');
-  formatted = formatted.replace(/(IMP[\s\S]{0,220}?)<([a-z0-9]+)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\2>/gi, '$1');
-  formatted = formatted.replace(/(IMP[\s\S]{0,220}?)(?:<br\s*\/?>|\n|\r)+\s*(?:0(?:\s*mo)?|IO)\s*(?=(?:<br\s*\/?>|\n|\r|<\/))/gi, '$1');
+  formatted = formatted.replace(/(IMP[\s\S]{0,160}?)<([a-z0-9]+)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\2>/gi, '$1');
   formatted = formatted.replace(
     /<(div|p|span|td|th|tr|li|strong|b|small|font)([^>]*)>\s*(?:0(?:\s*mo)?|IO)\s*<\/\1>/gi,
     ''
   );
-  formatted = formatted.replace(/(?:<br\s*\/?>|\n|\r)+[\s\u00a0]*(?:0(?:\s*mo)?|IO)[\s\u00a0]*(?=(?:<br\s*\/?>|\n|\r|<\/|$))/gi, '');
 
-  // Eliminar elementos o saltos de línea vacíos que generan espacios verticales extra
-  formatted = formatted.replace(/<(div|p|span|td|th|tr|li)([^>]*)>[\s\u00a0]*<\/\1>/gi, '');
+  // Colapsar saltos <br> repetidos (2 o más) sin borrar separadores
   formatted = formatted.replace(/(?:<br\s*\/?>\s*){2,}/gi, '<br>');
 
   return formatted;
@@ -137,6 +134,13 @@ function preparePrintableHtml(html, isLabel) {
       margin-top: 0 !important;
       margin-bottom: 0 !important;
       word-break: break-word !important;
+    }
+    hr {
+      border: 0 !important;
+      border-top: 1px dashed #000000 !important;
+      height: 0 !important;
+      margin: 2px 0 !important;
+      padding: 0 !important;
     }
     table {
       width: 100% !important;
