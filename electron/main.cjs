@@ -61,10 +61,11 @@ function formatTicketTextFor58mm(html) {
   // Quitar decimales ".00" en importes monetarios (ej. $100.00 -> $100)
   formatted = formatted.replace(/\$\s*(\d+)\.00\b/g, '$$$1');
 
-  // Quitar "0" o "0 mo" suelto tras IMPO o en bloques/renglones aislados
-  formatted = formatted.replace(/(IMPO[\s\S]{0,120}?)(?:>\s*0(?:\s*mo)?\s*<|>\s*0(?:\s*mo)?\b|\b0\s+mo\b)/gi, '$1');
+  // Quitar "0" o "0 mo" suelto en etiquetas/renglones/celdas tras IMPO
+  formatted = formatted.replace(/(IMPO[\s\S]{0,220}?)<([a-z0-9]+)([^>]*)>\s*0(?:\s*mo)?\s*<\/\2>/gi, '$1');
+  formatted = formatted.replace(/(IMPO[\s\S]{0,220}?)(?:<br\s*\/?>|\n|\r)+\s*0(?:\s*mo)?\s*(?=(?:<br\s*\/?>|\n|\r|<\/))/gi, '$1');
   formatted = formatted.replace(
-    /<(div|p|span|td|th|tr|li|strong|b|small)([^>]*)>\s*0(?:\s*mo)?\s*<\/\1>/gi,
+    /<(div|p|span|td|th|tr|li|strong|b|small|font)([^>]*)>\s*0(?:\s*mo)?\s*<\/\1>/gi,
     ''
   );
   formatted = formatted.replace(/(?:<br\s*\/?>|\n|\r)+[\s\u00a0]*0(?:\s*mo)?[\s\u00a0]*(?=(?:<br\s*\/?>|\n|\r|<\/|$))/gi, '');
@@ -114,21 +115,21 @@ function preparePrintableHtml(html, isLabel) {
     @page { margin: 0; size: 58mm auto; }
     html, body {
       margin: 0 !important;
-      padding: 0 2mm 0 1mm !important;
-      width: 45mm !important;
-      max-width: 45mm !important;
+      padding: 0 2mm !important;
+      width: 100% !important;
+      max-width: 54mm !important;
       box-sizing: border-box !important;
       background: #ffffff !important;
       color: #000000 !important;
       overflow-x: hidden !important;
     }
-    table, tr, td, th, div, p, span {
+    *, *::before, *::after {
       box-sizing: border-box !important;
-      max-width: 45mm !important;
+      max-width: 100% !important;
       word-break: break-word !important;
     }
     table {
-      width: 45mm !important;
+      width: 100% !important;
       table-layout: fixed !important;
       border-collapse: collapse !important;
     }
@@ -256,7 +257,7 @@ async function printHiddenHtml(html, options, waitForImages) {
           : {
               pageSize: {
                 width: 58000,
-                height: 150000,
+                height: 80000,
               },
             }),
       };
