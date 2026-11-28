@@ -115,6 +115,8 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
     };
   }, [open]);
 
+  if (!open) return null;
+
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -208,105 +210,4 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
       return;
     }
 
-    const unitCost = Number(selectedProduct.cost_price) || 0;
-
-    setOrderItems((prev) => {
-      const idx = prev.findIndex((it) => it.product.id === selectedProduct.id);
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + cleanQty };
-        return copy;
-      }
-      return [
-        ...prev,
-        {
-          product: selectedProduct,
-          claveBienestar,
-          quantity: cleanQty,
-          unitCost,
-          cap: '',
-          med: selectedProduct.unit?.slice(0, 1).toUpperCase() || 'P',
-          gram: '',
-          emp: '',
-        },
-      ];
-    });
-
-    setSelectedProduct(null);
-    setSearchInput('');
-    setQtyInput(1);
-    setError(null);
-    window.setTimeout(() => searchRef.current?.focus(), 20);
-  };
-
-  const updateItemQty = (productId: string, quantity: number) => {
-    const clean = Math.max(1, Math.round(Number(quantity) || 1));
-    setOrderItems((prev) =>
-      prev.map((it) => (it.product.id === productId ? { ...it, quantity: clean } : it))
-    );
-  };
-
-  const updateItemField = (
-    productId: string,
-    field: 'cap' | 'med' | 'gram' | 'emp' | 'unitCost',
-    value: string
-  ) => {
-    setOrderItems((prev) =>
-      prev.map((it) => {
-        if (it.product.id !== productId) return it;
-        if (field === 'unitCost') {
-          return { ...it, unitCost: Math.max(0, Number(value) || 0) };
-        }
-        return { ...it, [field]: value };
-      })
-    );
-  };
-
-  const removeItem = (productId: string) => {
-    setOrderItems((prev) => prev.filter((it) => it.product.id !== productId));
-  };
-
-  const subtotalGeneral = useMemo(
-    () => orderItems.reduce((acc, it) => acc + it.quantity * it.unitCost, 0),
-    [orderItems]
-  );
-
-  const totalPiezas = useMemo(
-    () => orderItems.reduce((acc, it) => acc + it.quantity, 0),
-    [orderItems]
-  );
-
-  const safeBonus = Math.max(0, Number(bonusPercent) || 0);
-  const gananciaBonificacion = useMemo(
-    () => subtotalGeneral * (safeBonus / 100),
-    [subtotalGeneral, safeBonus]
-  );
-
-  const openPrintDocument = (html: string, title: string) => {
-    const win = window.open('', '_blank', 'width=960,height=720');
-    if (!win) {
-      setError('El navegador bloqueó la ventana del PDF. Haz clic en "Permitir ventanas emergentes" en la barra de arriba.');
-      return;
-    }
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
-    win.document.title = title;
-    window.setTimeout(() => {
-      win.focus();
-      win.print();
-    }, 300);
-  };
-
-  const handleDownloadInternalPdf = () => {
-    if (orderItems.length === 0) {
-      setError('Agrega al menos un artículo antes de generar los PDF.');
-      return;
-    }
-    const fecha = new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
-    const rowsHtml = orderItems
-      .map((it, idx) => {
-        const sub = it.quantity * it.unitCost;
-        return `
-          <tr>
-            <td style="text-align:
+    const unitCost = Number(selectedProduct.cost_price) || 0
