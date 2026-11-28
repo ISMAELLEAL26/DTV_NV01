@@ -4,17 +4,48 @@ import { formatCurrency } from '@/lib/format';
 import { matchesQuery } from '@/lib/search';
 import type { Product } from '@/lib/types';
 import Button from '@/components/Button';
-import { FileText, ImagePlus, Plus, Printer, RotateCcw, ScanLine, Trash2, X } from 'lucide-react';
+import {
+  BookmarkCheck,
+  Eye,
+  FilePlus2,
+  FileText,
+  FolderOpen,
+  ImagePlus,
+  Plus,
+  Printer,
+  RotateCcw,
+  ScanLine,
+  Trash2,
+  X,
+} from 'lucide-react';
 
 interface BienestarOrderItem {
-  product: Product;
+  id: string;
+  product: Product | null;
+  isManual: boolean;
   claveBienestar: string;
+  name: string;
   quantity: number;
-  unitCost: number;
+  unitCost: number | null;
+  isSuggestedPrice: boolean;
   cap: string;
   med: string;
   gram: string;
   emp: string;
+}
+
+interface SavedBienestarPedido {
+  id: string;
+  folio: string;
+  savedAt: string;
+  status: 'BORRADOR' | 'GUARDADO';
+  tiendaNum: string;
+  tiendaNombre: string;
+  almacenNombre: string;
+  entregaCol: EntregaColumn;
+  mesPedido: MesNombre;
+  bonusPercent: number;
+  items: BienestarOrderItem[];
 }
 
 interface BienestarOrderModalProps {
@@ -42,6 +73,8 @@ const MESES_OPCIONES = [
 type MesNombre = (typeof MESES_OPCIONES)[number];
 
 const STORAGE_LOGO_KEY = 'pdv_bienestar_pedido_logo_v1';
+const STORAGE_PEDIDOS_KEY = 'pdv_bienestar_pedidos_guardados_v1';
+const STORAGE_ACTIVE_DRAFT_KEY = 'pdv_bienestar_borrador_activo_v1';
 
 const DEFAULT_BIENESTAR_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 115" width="360" height="115">
@@ -74,6 +107,39 @@ function getDefaultMes(): MesNombre {
   return MESES_OPCIONES[idx] ?? 'DICIEMBRE';
 }
 
+function makeItemId(): string {
+  return `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makeFolio(): string {
+  const now = new Date();
+  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
+    now.getDate()
+  ).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(
+    now.getMinutes()
+  ).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  return `PB-${stamp}`;
+}
+
+function readSavedPedidos(): SavedBienestarPedido[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_PEDIDOS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSavedPedidos(list: SavedBienestarPedido[]): void {
+  try {
+    localStorage.setItem(STORAGE_PEDIDOS_KEY, JSON.stringify(list));
+  } catch {
+    // Ignorar si supera cuota de almacenamiento
+  }
+}
+
 export default function BienestarOrderModal({ open, onClose }: BienestarOrderModalProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -87,6 +153,21 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
   const [almacenNombre, setAlmacenNombre] = useState('ALMACEN OMETEPEC');
   const [entregaCol, setEntregaCol] = useState<EntregaColumn>('PRIMERA');
   const [mesPedido, setMesPedido] = useState<MesNombre>(getDefaultMes);
+  const [currentPedidoId, setCurrentPedidoId] = useState<string | null>(null);
+  const [currentFolio, setCurrentFolio] = useState<string>(() => makeFolio());
+
+  const [savedPedidos, setSavedPedidos] = useState<SavedBienestarPedido[]>(() => readSavedPedidos());
+  const [showHistorial, setShowHistorial] = useState(false);
+  const [inspectedPedido, setInspectedPedido] = useState<SavedBienestarPedido | null>(null);
+
+  // Estado para agregar producto no existente en catálogo
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualClave, setManualClave] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [manualQty, setManualQty] = useState<number>(1);
+  const [manualPriceMode, setManualPriceMode] = useState<'SUGERIDO' | 'BLANCO'>('SUGERIDO');
+  const [manualPriceValue, setManualPriceValue] = useState<string>('');
+
   const [customLogo, setCustomLogo] = useState<string>(() => {
     try {
       return localStorage.getItem(STORAGE_LOGO_KEY) || '';
@@ -95,6 +176,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
     }
   });
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
@@ -102,8 +184,71 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
 
   const activeLogo = customLogo || DEFAULT_BIENESTAR_LOGO_SVG;
 
+  // Persistir borrador automático de sesión activa al cambiar artículos o datos
+  useEffect(() => {
+    try {
+      const hasContent =
+        orderItems.length > 0 ||
+        tiendaNum !== '274' ||
+        tiendaNombre !== 'MILPILLAS' ||
+        almacenNombre !== 'ALMACEN OMETEPEC';
+      if (!hasContent) {
+        localStorage.removeItem(STORAGE_ACTIVE_DRAFT_KEY);
+        return;
+      }
+      localStorage.setItem(
+        STORAGE_ACTIVE_DRAFT_KEY,
+        JSON.stringify({
+          currentPedidoId,
+          currentFolio,
+          tiendaNum,
+          tiendaNombre,
+          almacenNombre,
+          entregaCol,
+          mesPedido,
+          bonusPercent,
+          orderItems,
+        })
+      );
+    } catch {
+      // Ignorar
+    }
+  }, [
+    currentPedidoId,
+    currentFolio,
+    tiendaNum,
+    tiendaNombre,
+    almacenNombre,
+    entregaCol,
+    mesPedido,
+    bonusPercent,
+    orderItems,
+  ]);
+
+  // Restaurar borrador activo si se reabre el modal
   useEffect(() => {
     if (!open) return;
+    setSavedPedidos(readSavedPedidos());
+    try {
+      const rawDraft = localStorage.getItem(STORAGE_ACTIVE_DRAFT_KEY);
+      if (rawDraft && orderItems.length === 0) {
+        const draft = JSON.parse(rawDraft);
+        if (Array.isArray(draft.orderItems) && draft.orderItems.length > 0) {
+          setOrderItems(draft.orderItems);
+          if (draft.currentPedidoId) setCurrentPedidoId(draft.currentPedidoId);
+          if (draft.currentFolio) setCurrentFolio(draft.currentFolio);
+          if (draft.tiendaNum) setTiendaNum(draft.tiendaNum);
+          if (draft.tiendaNombre) setTiendaNombre(draft.tiendaNombre);
+          if (draft.almacenNombre) setAlmacenNombre(draft.almacenNombre);
+          if (draft.entregaCol) setEntregaCol(draft.entregaCol);
+          if (draft.mesPedido) setMesPedido(draft.mesPedido);
+          if (typeof draft.bonusPercent === 'number') setBonusPercent(draft.bonusPercent);
+        }
+      }
+    } catch {
+      // Ignorar
+    }
+
     let cancelled = false;
     setLoadingProducts(true);
     setError(null);
@@ -149,7 +294,11 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
   }, [products, searchInput]);
 
   const subtotalGeneral = useMemo(
-    () => orderItems.reduce((acc, it) => acc + it.quantity * it.unitCost, 0),
+    () =>
+      orderItems.reduce(
+        (acc, it) => acc + (it.unitCost !== null ? it.quantity * it.unitCost : 0),
+        0
+      ),
     [orderItems]
   );
 
@@ -203,6 +352,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
     setSearchInput(product.name);
     setQtyInput(1);
     setError(null);
+    setNotice(null);
     window.setTimeout(() => {
       qtyRef.current?.focus();
       qtyRef.current?.select();
@@ -245,14 +395,18 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
     ).trim();
 
     if (!claveBienestar) {
-      setError(`El artículo "${selectedProduct.name}" no tiene Código de Barras 2 (Clave Bienestar) asignado.`);
+      setError(
+        `El artículo "${selectedProduct.name}" no tiene Código de Barras 2 (Clave Bienestar) asignado.`
+      );
       return;
     }
 
     const unitCost = Number(selectedProduct.cost_price) || 0;
 
     setOrderItems((prev) => {
-      const idx = prev.findIndex((it) => it.product.id === selectedProduct.id);
+      const idx = prev.findIndex(
+        (it) => !it.isManual && it.product?.id === selectedProduct.id
+      );
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + cleanQty };
@@ -261,10 +415,14 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
       return [
         ...prev,
         {
+          id: makeItemId(),
           product: selectedProduct,
+          isManual: false,
           claveBienestar,
+          name: selectedProduct.name,
           quantity: cleanQty,
           unitCost,
+          isSuggestedPrice: false,
           cap: '',
           med: selectedProduct.unit?.slice(0, 1).toUpperCase() || 'P',
           gram: '',
@@ -277,40 +435,208 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
     setSearchInput('');
     setQtyInput(1);
     setError(null);
+    setNotice(null);
     window.setTimeout(() => searchRef.current?.focus(), 20);
   };
 
-  const updateItemQty = (productId: string, quantity: number) => {
+  const handleAddManualItem = () => {
+    const cleanName = manualName.trim();
+    if (!cleanName) {
+      setError('Escribe el nombre del producto no existente en sistema.');
+      return;
+    }
+    const cleanQty = Math.max(1, Math.round(Number(manualQty) || 1));
+    const cleanClave = manualClave.trim() || 'S/C';
+
+    let finalUnitCost: number | null = null;
+    let isSuggested = false;
+
+    if (manualPriceMode === 'SUGERIDO') {
+      const parsed = Number(manualPriceValue);
+      if (!manualPriceValue.trim() || Number.isNaN(parsed) || parsed < 0) {
+        setError('Ingresa un precio sugerido válido o selecciona la opción de dejarlo en blanco.');
+        return;
+      }
+      finalUnitCost = parsed;
+      isSuggested = true;
+    } else {
+      finalUnitCost = null;
+      isSuggested = false;
+    }
+
+    setOrderItems((prev) => [
+      ...prev,
+      {
+        id: makeItemId(),
+        product: null,
+        isManual: true,
+        claveBienestar: cleanClave,
+        name: cleanName,
+        quantity: cleanQty,
+        unitCost: finalUnitCost,
+        isSuggestedPrice: isSuggested,
+        cap: '',
+        med: 'P',
+        gram: '',
+        emp: '',
+      },
+    ]);
+
+    setManualClave('');
+    setManualName('');
+    setManualQty(1);
+    setManualPriceValue('');
+    setShowManualForm(false);
+    setError(null);
+    setNotice(`Se agregó "${cleanName}" al pedido (no afecta el catálogo del sistema).`);
+  };
+
+  const updateItemQty = (itemId: string, quantity: number) => {
     const clean = Math.max(1, Math.round(Number(quantity) || 1));
     setOrderItems((prev) =>
-      prev.map((it) => (it.product.id === productId ? { ...it, quantity: clean } : it))
+      prev.map((it) => (it.id === itemId ? { ...it, quantity: clean } : it))
     );
   };
 
-  const updateItemField = (
-    productId: string,
-    field: 'cap' | 'med' | 'gram' | 'emp' | 'unitCost',
-    value: string
-  ) => {
+  const updateItemCost = (itemId: string, rawValue: string) => {
     setOrderItems((prev) =>
       prev.map((it) => {
-        if (it.product.id !== productId) return it;
-        if (field === 'unitCost') {
-          return { ...it, unitCost: Math.max(0, Number(value) || 0) };
+        if (it.id !== itemId) return it;
+        if (it.isManual && rawValue.trim() === '') {
+          return { ...it, unitCost: null, isSuggestedPrice: false };
         }
-        return { ...it, [field]: value };
+        const num = Math.max(0, Number(rawValue) || 0);
+        return {
+          ...it,
+          unitCost: num,
+          isSuggestedPrice: it.isManual ? true : it.isSuggestedPrice,
+        };
       })
     );
   };
 
-  const removeItem = (productId: string) => {
-    setOrderItems((prev) => prev.filter((it) => it.product.id !== productId));
+  const toggleManualBlankPrice = (itemId: string) => {
+    setOrderItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== itemId) return it;
+        if (it.unitCost === null) {
+          return { ...it, unitCost: 0, isSuggestedPrice: true };
+        }
+        return { ...it, unitCost: null, isSuggestedPrice: false };
+      })
+    );
+  };
+
+  const updateItemField = (
+    itemId: string,
+    field: 'cap' | 'med' | 'gram' | 'emp',
+    value: string
+  ) => {
+    setOrderItems((prev) =>
+      prev.map((it) => (it.id === itemId ? { ...it, [field]: value } : it))
+    );
+  };
+
+  const removeItem = (itemId: string) => {
+    setOrderItems((prev) => prev.filter((it) => it.id !== itemId));
+  };
+
+  const persistPedido = (status: 'BORRADOR' | 'GUARDADO') => {
+    if (orderItems.length === 0) {
+      setError('Agrega al menos un artículo antes de guardar.');
+      return;
+    }
+    const nowLabel = new Date().toLocaleString('es-MX', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    const recordId = currentPedidoId || `pedido-${Date.now()}`;
+    const folio = currentFolio || makeFolio();
+
+    const record: SavedBienestarPedido = {
+      id: recordId,
+      folio,
+      savedAt: nowLabel,
+      status,
+      tiendaNum,
+      tiendaNombre,
+      almacenNombre,
+      entregaCol,
+      mesPedido,
+      bonusPercent,
+      items: orderItems,
+    };
+
+    const existing = readSavedPedidos();
+    const idx = existing.findIndex((p) => p.id === recordId);
+    const nextList =
+      idx >= 0
+        ? existing.map((p, i) => (i === idx ? record : p))
+        : [record, ...existing];
+
+    writeSavedPedidos(nextList);
+    setSavedPedidos(nextList);
+    setCurrentPedidoId(recordId);
+    setCurrentFolio(folio);
+    setError(null);
+    setNotice(
+      status === 'BORRADOR'
+        ? `Borrador ${folio} guardado. Puedes consultarlo o retomarlo cuando quieras.`
+        : `Pedido ${folio} guardado. Ya puedes consultarlo, verlo y volver a descargar sus PDF.`
+    );
+  };
+
+  const handleLoadPedidoIntoEditor = (pedido: SavedBienestarPedido) => {
+    setCurrentPedidoId(pedido.id);
+    setCurrentFolio(pedido.folio);
+    setTiendaNum(pedido.tiendaNum);
+    setTiendaNombre(pedido.tiendaNombre);
+    setAlmacenNombre(pedido.almacenNombre);
+    setEntregaCol(pedido.entregaCol);
+    setMesPedido(pedido.mesPedido);
+    setBonusPercent(pedido.bonusPercent);
+    setOrderItems(pedido.items);
+    setInspectedPedido(null);
+    setShowHistorial(false);
+    setError(null);
+    setNotice(`Cargado ${pedido.folio} (${pedido.status === 'BORRADOR' ? 'Borrador' : 'Guardado'}).`);
+  };
+
+  const handleDeleteSavedPedido = (pedidoId: string) => {
+    const nextList = readSavedPedidos().filter((p) => p.id !== pedidoId);
+    writeSavedPedidos(nextList);
+    setSavedPedidos(nextList);
+    if (inspectedPedido?.id === pedidoId) {
+      setInspectedPedido(null);
+    }
+    if (currentPedidoId === pedidoId) {
+      setCurrentPedidoId(null);
+      setCurrentFolio(makeFolio());
+    }
+  };
+
+  const handleStartNewPedido = () => {
+    setCurrentPedidoId(null);
+    setCurrentFolio(makeFolio());
+    setOrderItems([]);
+    setSelectedProduct(null);
+    setSearchInput('');
+    setQtyInput(1);
+    setError(null);
+    setNotice('Nuevo pedido Bienestar listo.');
+    try {
+      localStorage.removeItem(STORAGE_ACTIVE_DRAFT_KEY);
+    } catch {
+      // Ignorar
+    }
   };
 
   const openPrintDocument = (html: string, title: string) => {
     const win = window.open('', '_blank', 'width=960,height=720');
     if (!win) {
-      setError('El navegador bloqueó la ventana del PDF. Haz clic en "Permitir ventanas emergentes" en la barra de arriba.');
+      setError(
+        'El navegador bloqueó la ventana del PDF. Haz clic en "Permitir ventanas emergentes" en la barra de arriba.'
+      );
       return;
     }
     win.document.open();
@@ -323,23 +649,51 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
     }, 300);
   };
 
-  const handleDownloadInternalPdf = () => {
-    if (orderItems.length === 0) {
+  const buildInternalPdfForRecord = (data: {
+    folio: string;
+    tiendaNum: string;
+    tiendaNombre: string;
+    almacenNombre: string;
+    entregaCol: EntregaColumn;
+    mesPedido: MesNombre;
+    bonusPercent: number;
+    items: BienestarOrderItem[];
+    fechaTexto?: string;
+  }) => {
+    if (data.items.length === 0) {
       setError('Agrega al menos un artículo antes de generar los PDF.');
       return;
     }
-    const fecha = new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
-    const rowsHtml = orderItems
+    const fecha =
+      data.fechaTexto ||
+      new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+
+    const subGeneral = data.items.reduce(
+      (acc, it) => acc + (it.unitCost !== null ? it.quantity * it.unitCost : 0),
+      0
+    );
+    const piezasTotal = data.items.reduce((acc, it) => acc + it.quantity, 0);
+    const bonifPct = Math.max(0, Number(data.bonusPercent) || 0);
+    const bonifMonto = subGeneral * (bonifPct / 100);
+
+    const rowsHtml = data.items
       .map((it, idx) => {
-        const sub = it.quantity * it.unitCost;
+        const hasPrice = it.unitCost !== null;
+        const sub = hasPrice ? it.quantity * (it.unitCost ?? 0) : null;
+        const costoLabel = hasPrice
+          ? `${formatCurrency(it.unitCost ?? 0)}${it.isSuggestedPrice ? ' (Sug.)' : ''}`
+          : '—';
+        const subLabel = sub !== null ? formatCurrency(sub) : '—';
+        const tagExtra = it.isManual ? ' <span style="color:#0f766e;font-size:10px;">[Extra]</span>' : '';
+
         return `
           <tr>
             <td style="text-align:center;">${idx + 1}</td>
             <td>${escapeHtml(it.claveBienestar)}</td>
-            <td>${escapeHtml(it.product.name)}</td>
+            <td>${escapeHtml(it.name)}${tagExtra}</td>
             <td style="text-align:right;">${it.quantity} PIEZAS</td>
-            <td style="text-align:right;">${formatCurrency(it.unitCost)}</td>
-            <td style="text-align:right;">${formatCurrency(sub)}</td>
+            <td style="text-align:right;">${escapeHtml(costoLabel)}</td>
+            <td style="text-align:right;">${escapeHtml(subLabel)}</td>
           </tr>
         `;
       })
@@ -350,7 +704,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
       <html lang="es">
       <head>
         <meta charset="utf-8" />
-        <title>Pedido Bienestar · Control Interno</title>
+        <title>Pedido Bienestar · Control Interno · ${escapeHtml(data.folio)}</title>
         <style>
           body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 24px; font-size: 12px; }
           .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f766e; padding-bottom: 12px; margin-bottom: 16px; }
@@ -360,7 +714,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
           table { width: 100%; border-collapse: collapse; margin-top: 12px; }
           th, td { border: 1px solid #cbd5e1; padding: 6px 8px; }
           th { background: #f1f5f9; text-align: left; font-size: 11px; }
-          .summary { margin-top: 16px; margin-left: auto; width: 320px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; background: #f8fafc; }
+          .summary { margin-top: 16px; margin-left: auto; width: 340px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; background: #f8fafc; }
           .summary-row { display: flex; justify-content: space-between; margin: 5px 0; }
           .summary-total { font-weight: 700; font-size: 14px; border-top: 1px solid #cbd5e1; padding-top: 6px; }
         </style>
@@ -369,7 +723,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
         <div class="header">
           <div>
             <h1>Pedido Bienestar · Control Interno y Costos</h1>
-            <div class="meta">Tienda #${escapeHtml(tiendaNum)} · ${escapeHtml(tiendaNombre)} · Almacén: ${escapeHtml(almacenNombre)} · ENTREGA ${escapeHtml(entregaCol)} · MES: ${escapeHtml(mesPedido)} · Fecha: ${escapeHtml(fecha)}</div>
+            <div class="meta">Folio: ${escapeHtml(data.folio)} · Tienda #${escapeHtml(data.tiendaNum)} · ${escapeHtml(data.tiendaNombre)} · Almacén: ${escapeHtml(data.almacenNombre)} · ENTREGA ${escapeHtml(data.entregaCol)} · MES: ${escapeHtml(data.mesPedido)} · Fecha: ${escapeHtml(fecha)}</div>
           </div>
           <img class="logo" src="${activeLogo}" alt="Logo Bienestar" />
         </div>
@@ -379,40 +733,54 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
               <th style="width:42px;text-align:center;">#</th>
               <th style="width:120px;">Clave / Cód. 2</th>
               <th>Artículo</th>
-              <th style="width:105px;text-align:right;">CANTIDAD SOLICITADA</th>
-              <th style="width:95px;text-align:right;">Costo Unit.</th>
+              <th style="width:110px;text-align:right;">CANTIDAD SOLICITADA</th>
+              <th style="width:115px;text-align:right;">Costo / Sug.</th>
               <th style="width:105px;text-align:right;">Subtotal</th>
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>
         </table>
         <div class="summary">
-          <div class="summary-row"><span>Total de piezas:</span><strong>${totalPiezas} PIEZAS</strong></div>
-          <div class="summary-row"><span>Subtotal general:</span><strong>${formatCurrency(subtotalGeneral)}</strong></div>
-          <div class="summary-row"><span>Bonificación (${safeBonus}%):</span><strong>${formatCurrency(gananciaBonificacion)}</strong></div>
-          <div class="summary-row summary-total"><span>Total estimado:</span><span>${formatCurrency(subtotalGeneral)}</span></div>
+          <div class="summary-row"><span>Total de piezas:</span><strong>${piezasTotal} PIEZAS</strong></div>
+          <div class="summary-row"><span>Subtotal general:</span><strong>${formatCurrency(subGeneral)}</strong></div>
+          <div class="summary-row"><span>Bonificación (${bonifPct}%):</span><strong>${formatCurrency(bonifMonto)}</strong></div>
+          <div class="summary-row summary-total"><span>Total estimado:</span><span>${formatCurrency(subGeneral)}</span></div>
         </div>
       </body>
       </html>
     `;
-    openPrintDocument(html, 'Pedido Bienestar - Control Interno');
+    openPrintDocument(html, `Pedido Bienestar - Control Interno - ${data.folio}`);
   };
 
-  const handleDownloadWarehousePdf = () => {
-    if (orderItems.length === 0) {
+  const buildWarehousePdfForRecord = (data: {
+    folio: string;
+    tiendaNum: string;
+    tiendaNombre: string;
+    almacenNombre: string;
+    entregaCol: EntregaColumn;
+    mesPedido: MesNombre;
+    items: BienestarOrderItem[];
+    fechaTexto?: string;
+  }) => {
+    if (data.items.length === 0) {
       setError('Agrega al menos un artículo antes de generar los PDF.');
       return;
     }
-    const fecha = new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
-    const rowsHtml = orderItems
-      .map((it, idx) => `
+    const fecha =
+      data.fechaTexto ||
+      new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+
+    const rowsHtml = data.items
+      .map(
+        (it, idx) => `
         <tr>
           <td class="num-col">${idx + 1}</td>
           <td class="clave-col">${escapeHtml(it.claveBienestar)}</td>
-          <td class="art-col">${escapeHtml(it.product.name)}</td>
+          <td class="art-col">${escapeHtml(it.name)}</td>
           <td class="cant-col">${it.quantity} PIEZAS</td>
         </tr>
-      `)
+      `
+      )
       .join('');
 
     const html = `
@@ -420,29 +788,29 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
       <html lang="es">
       <head>
         <meta charset="utf-8" />
-        <title>Pedido Bienestar · Formato Almacén</title>
+        <title>Pedido Bienestar · Formato Almacén · ${escapeHtml(data.folio)}</title>
         <style>
-          body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; margin: 24px; font-size: 14px; }
-          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #0f766e; padding-bottom: 14px; margin-bottom: 18px; gap: 16px; }
-          .logo { max-height: 68px; width: auto; }
-          h1 { margin: 0 0 8px; font-size: 24px; font-weight: 800; color: #0f172a; }
-          .meta { color: #1e293b; font-size: 14px; font-weight: 600; line-height: 1.45; }
-          .entrega-mes { margin-top: 6px; font-size: 15px; font-weight: 800; color: #0f766e; letter-spacing: 0.3px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-          th, td { border: 1.5px solid #94a3b8; padding: 10px 12px; font-size: 14px; }
-          th { background: #e2e8f0; color: #0f172a; font-size: 14px; font-weight: 800; text-align: left; }
-          th.num-col, td.num-col { width: 54px; text-align: center; font-weight: 700; }
-          th.clave-col, td.clave-col { width: 165px; font-family: monospace, sans-serif; font-size: 14px; font-weight: 700; }
+          body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; margin: 14px 18px; font-size: 12px; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2.5px solid #0f766e; padding-bottom: 8px; margin-bottom: 10px; gap: 12px; }
+          .logo { max-height: 52px; width: auto; }
+          h1 { margin: 0 0 4px; font-size: 19px; font-weight: 800; color: #0f172a; }
+          .meta { color: #1e293b; font-size: 12px; font-weight: 600; line-height: 1.3; }
+          .entrega-mes { margin-top: 3px; font-size: 13px; font-weight: 800; color: #0f766e; }
+          table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+          th, td { border: 1px solid #94a3b8; padding: 5px 8px; font-size: 12px; line-height: 1.2; }
+          th { background: #e2e8f0; color: #0f172a; font-size: 12px; font-weight: 800; text-align: left; }
+          th.num-col, td.num-col { width: 42px; text-align: center; font-weight: 700; }
+          th.clave-col, td.clave-col { width: 145px; font-family: monospace, sans-serif; font-size: 12px; font-weight: 700; }
           th.art-col, td.art-col { text-align: left; font-weight: 600; }
-          th.cant-col, td.cant-col { width: 175px; text-align: right; font-weight: 800; }
+          th.cant-col, td.cant-col { width: 150px; text-align: right; font-weight: 800; }
         </style>
       </head>
       <body>
         <div class="header">
           <div>
             <h1>Pedido Bienestar · Formato de Almacén</h1>
-            <div class="meta">Tienda #${escapeHtml(tiendaNum)} · ${escapeHtml(tiendaNombre)} · Almacén: ${escapeHtml(almacenNombre)} · Fecha: ${escapeHtml(fecha)}</div>
-            <div class="entrega-mes">ENTREGA ${escapeHtml(entregaCol)} MES: ${escapeHtml(mesPedido)}</div>
+            <div class="meta">Folio: ${escapeHtml(data.folio)} · Tienda #${escapeHtml(data.tiendaNum)} · ${escapeHtml(data.tiendaNombre)} · Almacén: ${escapeHtml(data.almacenNombre)} · Fecha: ${escapeHtml(fecha)}</div>
+            <div class="entrega-mes">ENTREGA ${escapeHtml(data.entregaCol)} MES: ${escapeHtml(data.mesPedido)}</div>
           </div>
           <img class="logo" src="${activeLogo}" alt="Logo Bienestar" />
         </div>
@@ -460,24 +828,68 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
       </body>
       </html>
     `;
-    openPrintDocument(html, 'Pedido Bienestar - Formato Almacen');
+    openPrintDocument(html, `Pedido Bienestar - Formato Almacen - ${data.folio}`);
+  };
+
+  const handleDownloadInternalPdf = () => {
+    buildInternalPdfForRecord({
+      folio: currentFolio,
+      tiendaNum,
+      tiendaNombre,
+      almacenNombre,
+      entregaCol,
+      mesPedido,
+      bonusPercent,
+      items: orderItems,
+    });
+  };
+
+  const handleDownloadWarehousePdf = () => {
+    buildWarehousePdfForRecord({
+      folio: currentFolio,
+      tiendaNum,
+      tiendaNombre,
+      almacenNombre,
+      entregaCol,
+      mesPedido,
+      items: orderItems,
+    });
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+        {/* Encabezado */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-6 py-4">
           <div className="flex items-center gap-3">
             <img src={activeLogo} alt="Logo Bienestar" className="h-10 w-auto rounded object-contain" />
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Pedido Bienestar</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-slate-900">Pedido Bienestar</h2>
+                <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-600">
+                  {currentFolio}
+                </span>
+              </div>
               <p className="text-xs text-slate-500">
-                Captura por código, SKU o nombre · Control interno y formato de almacén
+                Captura por código, SKU o nombre · Productos extra · Guardado y consulta de PDFs
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setShowHistorial((prev) => !prev);
+                setInspectedPedido(null);
+              }}
+            >
+              <FolderOpen size={15} /> Guardados ({savedPedidos.length})
+            </Button>
+            <Button type="button" variant="secondary" onClick={handleStartNewPedido}>
+              <FilePlus2 size={15} /> Nuevo
+            </Button>
             <input
               ref={logoInputRef}
               type="file"
@@ -485,11 +897,16 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
               className="hidden"
               onChange={handleLogoUpload}
             />
-            <Button variant="secondary" onClick={() => logoInputRef.current?.click()}>
+            <Button type="button" variant="secondary" onClick={() => logoInputRef.current?.click()}>
               <ImagePlus size={15} /> Logo
             </Button>
             {customLogo && (
-              <Button variant="secondary" onClick={handleResetLogo} title="Restaurar logo predeterminado">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleResetLogo}
+                title="Restaurar logo predeterminado"
+              >
                 <RotateCcw size={15} />
               </Button>
             )}
@@ -504,13 +921,200 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
           </div>
         </div>
 
+        {/* Cuerpo principal */}
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
           {error && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
               {error}
             </div>
           )}
+          {notice && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+              {notice}
+            </div>
+          )}
 
+          {/* Panel de pedidos guardados / borradores para consultar, ver y descargar PDFs */}
+          {showHistorial && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-800">
+                  Pedidos Guardados y Borradores
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowHistorial(false);
+                    setInspectedPedido(null);
+                  }}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                >
+                  Ocultar
+                </button>
+              </div>
+
+              {savedPedidos.length === 0 ? (
+                <p className="py-4 text-center text-xs text-slate-500">
+                  No hay borradores ni pedidos guardados todavía. Usa &ldquo;Guardar borrador&rdquo; o &ldquo;Guardar pedido&rdquo;.
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-slate-200 bg-slate-100 text-slate-600">
+                      <tr>
+                        <th className="px-3 py-2">Folio</th>
+                        <th className="px-3 py-2">Estado</th>
+                        <th className="px-3 py-2">Entrega / Mes</th>
+                        <th className="px-3 py-2">Fecha</th>
+                        <th className="px-3 py-2 text-center">Artículos</th>
+                        <th className="px-3 py-2 text-right">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {savedPedidos.map((p) => (
+                        <tr key={p.id} className="hover:bg-slate-50">
+                          <td className="px-3 py-2 font-mono font-semibold text-slate-800">{p.folio}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                p.status === 'BORRADOR'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {p.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {p.entregaCol} · {p.mesPedido}
+                          </td>
+                          <td className="px-3 py-2 text-slate-500">{p.savedAt}</td>
+                          <td className="px-3 py-2 text-center font-semibold text-slate-700">
+                            {p.items.length}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex flex-wrap justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setInspectedPedido(p)}
+                                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 font-medium text-slate-700 hover:bg-slate-100"
+                              >
+                                <Eye size={13} /> Ver
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleLoadPedidoIntoEditor(p)}
+                                className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-medium text-emerald-700 hover:bg-emerald-100"
+                              >
+                                Cargar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  buildWarehousePdfForRecord({
+                                    folio: p.folio,
+                                    tiendaNum: p.tiendaNum,
+                                    tiendaNombre: p.tiendaNombre,
+                                    almacenNombre: p.almacenNombre,
+                                    entregaCol: p.entregaCol,
+                                    mesPedido: p.mesPedido,
+                                    items: p.items,
+                                    fechaTexto: p.savedAt,
+                                  })
+                                }
+                                className="rounded border border-slate-200 bg-white px-2 py-1 font-medium text-slate-700 hover:bg-slate-100"
+                              >
+                                PDF Almacén
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  buildInternalPdfForRecord({
+                                    folio: p.folio,
+                                    tiendaNum: p.tiendaNum,
+                                    tiendaNombre: p.tiendaNombre,
+                                    almacenNombre: p.almacenNombre,
+                                    entregaCol: p.entregaCol,
+                                    mesPedido: p.mesPedido,
+                                    bonusPercent: p.bonusPercent,
+                                    items: p.items,
+                                    fechaTexto: p.savedAt,
+                                  })
+                                }
+                                className="rounded border border-slate-200 bg-white px-2 py-1 font-medium text-slate-700 hover:bg-slate-100"
+                              >
+                                PDF Interno
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSavedPedido(p.id)}
+                                className="rounded border border-red-200 bg-red-50 px-2 py-1 text-red-700 hover:bg-red-100"
+                                title="Eliminar registro"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {inspectedPedido && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800">
+                      Detalle de {inspectedPedido.folio} · Tienda #{inspectedPedido.tiendaNum} ({inspectedPedido.tiendaNombre}) · ENTREGA {inspectedPedido.entregaCol} MES: {inspectedPedido.mesPedido}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setInspectedPedido(null)}
+                      className="text-xs text-slate-500 hover:text-slate-800"
+                    >
+                      Cerrar vista
+                    </button>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-slate-200 text-slate-500">
+                        <tr>
+                          <th className="py-1 pr-2">Clave</th>
+                          <th className="py-1 px-2">Artículo</th>
+                          <th className="py-1 px-2 text-right">Cantidad</th>
+                          <th className="py-1 pl-2 text-right">Precio / Sugerido</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {inspectedPedido.items.map((it) => (
+                          <tr key={it.id}>
+                            <td className="py-1 pr-2 font-mono">{it.claveBienestar}</td>
+                            <td className="py-1 px-2">
+                              {it.name}{' '}
+                              {it.isManual && (
+                                <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-600">
+                                  No en catálogo
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-1 px-2 text-right font-semibold">{it.quantity} PIEZAS</td>
+                            <td className="py-1 pl-2 text-right">
+                              {it.unitCost !== null
+                                ? `${formatCurrency(it.unitCost)}${it.isSuggestedPrice ? ' (Sugerido)' : ''}`
+                                : 'En blanco'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Datos generales del pedido */}
           <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-5">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">No. Tienda</label>
@@ -568,13 +1172,17 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
             </div>
           </div>
 
+          {/* Captura de producto existente + botón de producto no existente en sistema */}
           <div className="relative grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-12">
-            <div className="relative sm:col-span-7">
+            <div className="relative sm:col-span-6">
               <label className="mb-1 block text-xs font-semibold text-slate-600">
                 {loadingProducts ? 'Cargando catálogo...' : 'Buscar o escanear producto (código, SKU o nombre)'}
               </label>
               <div className="relative">
-                <ScanLine size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <ScanLine
+                  size={16}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
                 <input
                   ref={searchRef}
                   type="text"
@@ -627,13 +1235,112 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
               />
             </div>
 
-            <div className="flex items-end sm:col-span-3">
+            <div className="flex items-end sm:col-span-2">
               <Button type="button" onClick={handleAddItem} className="w-full justify-center">
-                <Plus size={16} /> Agregar artículo
+                <Plus size={16} /> Agregar
               </Button>
             </div>
+
+            <div className="flex items-end sm:col-span-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setShowManualForm((prev) => !prev);
+                  setError(null);
+                }}
+                className="w-full justify-center"
+              >
+                <Plus size={15} /> No en sistema
+              </Button>
+            </div>
+
+            {/* Formulario para producto no existente en sistema */}
+            {showManualForm && (
+              <div className="sm:col-span-12 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3.5">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-900">
+                    Agregar producto no existente en sistema (solo para esta lista de pedido)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualForm(false)}
+                    className="text-xs text-slate-500 hover:text-slate-800"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-12">
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Clave (opcional)</label>
+                    <input
+                      type="text"
+                      value={manualClave}
+                      onChange={(e) => setManualClave(e.target.value)}
+                      placeholder="Ej. S/C"
+                      className={`w-full ${fieldClass}`}
+                    />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Nombre del artículo</label>
+                    <input
+                      type="text"
+                      value={manualName}
+                      onChange={(e) => setManualName(e.target.value)}
+                      placeholder="Ej. GALLETA SURTIDA 500G"
+                      className={`w-full ${fieldClass}`}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Cantidad</label>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={manualQty}
+                      onChange={(e) => setManualQty(Math.max(1, Math.round(Number(e.target.value) || 1)))}
+                      className={`w-full ${fieldClass}`}
+                    />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Opción de precio</label>
+                    <div className="flex gap-2">
+                      <select
+                        value={manualPriceMode}
+                        onChange={(e) =>
+                          setManualPriceMode(e.target.value as 'SUGERIDO' | 'BLANCO')
+                        }
+                        className={`${fieldClass}`}
+                      >
+                        <option value="SUGERIDO">Precio sugerido</option>
+                        <option value="BLANCO">Dejar en blanco</option>
+                      </select>
+                      {manualPriceMode === 'SUGERIDO' && (
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={manualPriceValue}
+                          onChange={(e) => setManualPriceValue(e.target.value)}
+                          placeholder="0.00"
+                          className={`w-24 ${fieldClass}`}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex justify-end">
+                  <Button type="button" onClick={handleAddManualItem}>
+                    <Plus size={15} /> Añadir a la lista del pedido
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
+          {/* Tabla de artículos del pedido */}
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-600">
@@ -641,7 +1348,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
                   <th className="px-3 py-2.5">Clave</th>
                   <th className="px-3 py-2.5">Producto</th>
                   <th className="px-2 py-2.5 text-center">Cant.</th>
-                  <th className="px-2 py-2.5 text-right">Costo</th>
+                  <th className="px-2 py-2.5 text-right">Costo / Sug.</th>
                   <th className="px-2 py-2.5 text-center">CAP</th>
                   <th className="px-2 py-2.5 text-center">MED</th>
                   <th className="px-2 py-2.5 text-center">GRAM</th>
@@ -658,81 +1365,105 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
                     </td>
                   </tr>
                 ) : (
-                  orderItems.map((it) => (
-                    <tr key={it.product.id} className="hover:bg-slate-50/80">
-                      <td className="px-3 py-2 font-mono text-xs text-slate-600">{it.claveBienestar}</td>
-                      <td className="px-3 py-2 font-medium text-slate-800">{it.product.name}</td>
-                      <td className="px-2 py-2 text-center">
-                        <input
-                          type="number"
-                          min={1}
-                          value={it.quantity}
-                          onChange={(e) => updateItemQty(it.product.id, Number(e.target.value))}
-                          className="w-16 rounded border border-slate-200 px-2 py-1 text-center text-xs"
-                        />
-                      </td>
-                      <td className="px-2 py-2 text-right">
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={it.unitCost}
-                          onChange={(e) => updateItemField(it.product.id, 'unitCost', e.target.value)}
-                          className="w-20 rounded border border-slate-200 px-2 py-1 text-right text-xs"
-                        />
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <input
-                          type="text"
-                          value={it.cap}
-                          onChange={(e) => updateItemField(it.product.id, 'cap', e.target.value)}
-                          className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
-                        />
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <input
-                          type="text"
-                          value={it.med}
-                          onChange={(e) => updateItemField(it.product.id, 'med', e.target.value)}
-                          className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
-                        />
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <input
-                          type="text"
-                          value={it.gram}
-                          onChange={(e) => updateItemField(it.product.id, 'gram', e.target.value)}
-                          className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
-                        />
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <input
-                          type="text"
-                          value={it.emp}
-                          onChange={(e) => updateItemField(it.product.id, 'emp', e.target.value)}
-                          className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-right font-semibold text-slate-900">
-                        {formatCurrency(it.quantity * it.unitCost)}
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => removeItem(it.product.id)}
-                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                          aria-label="Eliminar artículo"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  orderItems.map((it) => {
+                    const rowSubtotal = it.unitCost !== null ? it.quantity * it.unitCost : null;
+                    return (
+                      <tr key={it.id} className="hover:bg-slate-50/80">
+                        <td className="px-3 py-2 font-mono text-xs text-slate-600">{it.claveBienestar}</td>
+                        <td className="px-3 py-2 font-medium text-slate-800">
+                          <span>{it.name}</span>
+                          {it.isManual && (
+                            <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                              {it.isSuggestedPrice ? 'Extra · Sugerido' : 'Extra · Sin precio'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <input
+                            type="number"
+                            min={1}
+                            value={it.quantity}
+                            onChange={(e) => updateItemQty(it.id, Number(e.target.value))}
+                            className="w-16 rounded border border-slate-200 px-2 py-1 text-center text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 text-right">
+                          <div className="inline-flex items-center justify-end gap-1">
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={it.unitCost === null ? '' : it.unitCost}
+                              placeholder={it.isManual && it.unitCost === null ? 'Blanco' : '0.00'}
+                              onChange={(e) => updateItemCost(it.id, e.target.value)}
+                              className="w-20 rounded border border-slate-200 px-2 py-1 text-right text-xs"
+                            />
+                            {it.isManual && (
+                              <button
+                                type="button"
+                                onClick={() => toggleManualBlankPrice(it.id)}
+                                className="rounded border border-slate-200 px-1.5 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+                                title="Alternar entre precio sugerido o dejar en blanco"
+                              >
+                                {it.unitCost === null ? 'Precio' : 'Blanco'}
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <input
+                            type="text"
+                            value={it.cap}
+                            onChange={(e) => updateItemField(it.id, 'cap', e.target.value)}
+                            className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <input
+                            type="text"
+                            value={it.med}
+                            onChange={(e) => updateItemField(it.id, 'med', e.target.value)}
+                            className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <input
+                            type="text"
+                            value={it.gram}
+                            onChange={(e) => updateItemField(it.id, 'gram', e.target.value)}
+                            className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <input
+                            type="text"
+                            value={it.emp}
+                            onChange={(e) => updateItemField(it.id, 'emp', e.target.value)}
+                            className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold text-slate-900">
+                          {rowSubtotal !== null ? formatCurrency(rowSubtotal) : '—'}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => removeItem(it.id)}
+                            className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            aria-label="Eliminar artículo"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
 
+          {/* Totales y bonificación */}
           <div className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">
@@ -748,26 +1479,35 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
                 className={`w-full ${fieldClass}`}
               />
             </div>
-            <div className="flex flex-col justify-center rounded-lg bg-white px-3 py-2 border border-slate-200">
+            <div className="flex flex-col justify-center rounded-lg border border-slate-200 bg-white px-3 py-2">
               <span className="text-xs text-slate-500">Piezas: {totalPiezas} · Subtotal</span>
               <span className="text-base font-bold text-slate-900">{formatCurrency(subtotalGeneral)}</span>
             </div>
-            <div className="flex flex-col justify-center rounded-lg bg-emerald-50 px-3 py-2 border border-emerald-200">
+            <div className="flex flex-col justify-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
               <span className="text-xs text-emerald-700">Bonificación ({safeBonus}%)</span>
               <span className="text-base font-bold text-emerald-800">{formatCurrency(gananciaBonificacion)}</span>
             </div>
           </div>
         </div>
 
+        {/* Pie con botones de guardar borrador, guardar pedido y generar PDFs */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
-          <Button variant="secondary" onClick={onClose}>
-            Cerrar
-          </Button>
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={handleDownloadWarehousePdf}>
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cerrar
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => persistPedido('BORRADOR')}>
+              <BookmarkCheck size={16} /> Guardar borrador
+            </Button>
+            <Button type="button" onClick={() => persistPedido('GUARDADO')}>
+              <BookmarkCheck size={16} /> Guardar pedido
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" onClick={handleDownloadWarehousePdf}>
               <Printer size={16} /> PDF Almacén
             </Button>
-            <Button onClick={handleDownloadInternalPdf}>
+            <Button type="button" onClick={handleDownloadInternalPdf}>
               <FileText size={16} /> PDF Control Interno
             </Button>
           </div>
