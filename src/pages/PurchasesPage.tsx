@@ -193,7 +193,138 @@ async function createPurchasePdf({
   doc.setTextColor(50, 50, 50); doc.setFont('helvetica', 'normal');
   lines.forEach((line) => { if (y > 258) { doc.addPage(); y = 20; } const presentation = line.purchase_unit === 'caja' ? `${line.box_count} caja(s) x ${line.pieces_per_box}` : line.purchase_unit; doc.text(line.product_name.slice(0, 32), 20, y); doc.text(presentation.slice(0, 20), 85, y); doc.text(String(line.quantity), 122, y); doc.text(taxLabel(line.tax_type).slice(0, 18), 145, y); doc.text(formatCurrency(line.line_subtotal_after_tax), 178, y); y += 6; });
   y += 5; doc.line(112, y, 198, y); y += 7; doc.text('Subtotal', 145, y); doc.text(formatCurrency(subtotal), 178, y); y += 6; doc.text('Impuestos', 145, y); doc.text(formatCurrency(tax), 178, y); y += 7; doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('TOTAL', 145, y); doc.text(formatCurrency(total), 178, y);
-  y += 14; doc.setFontSize(8); doc.setTextColor(70, 70, 70); doc.
+  y += 14; doc.setFontSize(8); doc.setTextColor(70, 70, 70); doc.setFont('helvetica', 'bold'); doc.text('Cadena única de validación', 18, y); doc.setFont('helvetica', 'normal'); y += 5; doc.text(validationCode, 18, y); if (qrData) { try { doc.addImage(qrData, 'PNG', 164, y - 14, 28, 28); } catch { /* QR optional */ } }
+  doc.setFontSize(8); doc.setTextColor(130, 130, 130); doc.text('Generado automáticamente por el sistema de punto de venta.', 18, 282);
+  const report = `Compra ${folio}\nFecha: ${createdAt}\nSucursal: ${branchName}\nProveedor: ${supplierName}\nUsuario: ${userName} (${userContact})\nMétodo de pago: ${payment}\nCaja de salida: ${cashBox || 'No aplica'}\nTotal: ${formatCurrency(total)}\nCadena de validación: ${validationCode}`;
+  const dataUri = doc.output('datauristring');
+  return { url: String(doc.output('bloburl')), pdfBase64: dataUri.slice(dataUri.indexOf(',') + 1), report, validationCode };
+}
+
+export default function PurchasesPage({ initialTab = 'purchases' }: { initialTab?: Tab }) {
+  const { user, profile, currentBranch } = useAuth();
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [orders, setOrders] = useState<SupplierOrder[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [branchPriceRows, setBranchPriceRows] = useState<ProductBranchPrice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const [bienestarOpen, setBienestarOpen] = useState(false);
+  const [viewItem, setViewItem] = useState<Purchase | SupplierOrder | null>(null);
+  const [viewItems, setViewItems] = useState<PurchaseItem[] | SupplierOrderItem[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [supplierId, setSupplierId] = useState('');
+  const [lineItems, setLineItems] = useState<LineItem[]>([blankLine()]);
+  const [hasDraft, setHasDraft] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerLineIndex, setScannerLineIndex] = useState<number | null>(null);
+  const [priceChanges, setPriceChanges] = useState<PriceChangeEntry[]>([]);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [activeLineIndex, setActiveLineIndex] = useState(0);
+  const [purchaseFolio, setPurchaseFolio] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('efectivo');
+  const [cashExit, setCashExit] = useState(true);
+  const [cashBoxes, setCashBoxes] = useState<CashBoxOption[]>([]);
+  const [cashBoxId, setCashBoxId] = useState('');
+  const [purchaseReceipt, setPurchaseReceipt] = useState<PurchaseReceipt | null>(null);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailMessage, setEmailMessage] = useState<string | null>(null);
+  const lineInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  const branchRowByProduct = useMemo(() => {
+    const map = new Map<string, ProductBranchPrice>();
+    for (const row of branchPriceRows) if (row.branch_id === currentBranch?.id) map.set(row.product_id, row);
+    return map;
+  }, [branchPriceRows, currentBranch]);
+  const branchCost = (product: Product): number => effectivePrices(product, branchRowByProduct.get(product.id)).cost_price;
+
+  const load = useCallback(async () => {
+    if (!currentBranch) return;
+    setLoading(true);
+    const allProducts: Product[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase.from('products').select('*').eq('active', true).order('name').range(from, from + 999);
+      if (error) { console.error(error); break; }
+      allProducts.push(...((data as Product[]) ?? []));
+      if ((data ?? []).length < 1000) break;
+    }
+    const [{ data: purchaseRows }, { data: orderRows }, { data: supplierRows }] = await Promise.all([
+      supabase.from('purchases').select('*, supplier:suppliers(*)').eq('branch_id', currentBranch.id).order('created_at', { ascending: false }).limit(100),
+      supabase.from('supplier_orders').select('*, supplier:suppliers(*)').eq('branch_id', currentBranch.id).order('created_at', { ascending: false }).limit(100),
+      supabase.from('suppliers').select('*').order('name'),
+    ]);
+    setPurchases((purchaseRows as Purchase[]) ?? []);
+    setOrders((orderRows as SupplierOrder[]) ?? []);
+    setSuppliers((supplierRows as Supplier[]) ?? []);
+    setProducts(allProducts);
+    setBranchPriceRows(await fetchAllBranchPrices());
+    setLoading(false);
+  }, [currentBranch]);
+  useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const draft = loadDraft();
+    if (draft) setHasDraft(true);
+  }, []);
+
+  useEffect(() => {
+    if (open && lineItems.length > 0) {
+      saveDraft({ tab, supplierId, lineItems });
+    }
+  }, [tab, supplierId, lineItems, open]);
+
+  const filteredPurchases = useMemo(() => searchAndRank(search, purchases, (item) => [item.folio ?? '', item.supplier?.name ?? '']), [purchases, search]);
+  const filteredOrders = useMemo(() => searchAndRank(search, orders, (item) => [item.folio ?? '', item.supplier?.name ?? '']), [orders, search]);
+  const selectedSupplier = suppliers.find((supplier) => supplier.id === supplierId);
+  const totals = lineItems.reduce((summary, line) => {
+    const value = calculateLine(line);
+    return { before: summary.before + value.beforeTotal, after: summary.after + value.afterTotal, tax: summary.tax + value.taxTotal };
+  }, { before: 0, after: 0, tax: 0 });
+
+  const loadCashBoxes = useCallback(async (branchId: string) => {
+    const [{ data: boxes, error: boxesError }, { data: occupied, error: occError }] = await Promise.all([
+      supabase.from('cash_boxes').select('id, name').eq('branch_id', branchId).eq('active', true).order('name'),
+      supabase.rpc('get_occupied_cash_boxes', { p_branch_id: branchId }),
+    ]);
+    if (boxesError || occError) {
+      console.error('cash boxes load failed', boxesError ?? occError);
+      setCashBoxes([]);
+      setError('No se pudieron cargar las cajas de la sucursal. Cierra y vuelve a abrir la pantalla.');
+      return;
+    }
+    const registerByBox = new Map(((occupied as { box_id: string; register_id: string }[]) ?? []).map((row) => [row.box_id, row.register_id]));
+    setCashBoxes(((boxes as { id: string; name: string }[]) ?? []).map((box) => ({ ...box, registerId: registerByBox.get(box.id) ?? null })));
+  }, []);
+
+  const openNew = (type: Tab) => {
+    setTab(type); setSupplierId(''); setLineItems([blankLine()]); setError(null);
+    setActiveLineIndex(0); setPurchaseFolio(generateFolio(type === 'purchases' ? 'C' : 'P'));
+    setPaymentMethod('efectivo'); setCashExit(type === 'purchases'); setCashBoxId('');
+    setEmailMessage(null); clearDraft(); setHasDraft(false);
+    setOpen(true);
+    if (type === 'purchases' && currentBranch) void loadCashBoxes(currentBranch.id);
+  };
+
+  const restoreDraft = () => {
+    const draft = loadDraft();
+    if (!draft) return;
+    setTab(draft.tab); setSupplierId(draft.supplierId); setLineItems(draft.lineItems); setError(null);
+    setHasDraft(false);
+    setOpen(true);
+    if (draft.tab === 'purchases' && currentBranch) void loadCashBoxes(currentBranch.id);
+  };
+
+  const discardDraft = () => {
+    clearDraft(); setHasDraft(false);
+  };
+
+  const closeModal = () => {
+    setOpen(false);
+  };
+
   const addLine = () => {
     setLineItems((previous) => [...previous, blankLine()]);
     setActiveLineIndex(lineItems.length);
@@ -245,7 +376,9 @@ async function createPurchasePdf({
       return { ...line, pieces_per_box: value, price_input: pieceCost.toFixed(4) };
     }
     if (key === 'box_count' && typeof value === 'string') {
-      const pieces = Math.max(0, Number(value) || 0) * Math.max(0, Number(line.pieces_per_box) || 0);
+      const pieces = line.purchase_unit === 'caja'
+        ? Math.max(0, Number(value) || 0) * Math.max(0, Number(line.pieces_per_box) || 0)
+        : 0;
       const boxTotal = Math.max(0, Number(line.box_price) || 0);
       const pieceCost = pieces > 0 ? boxTotal / pieces : 0;
       return { ...line, box_count: value, price_input: pieceCost.toFixed(4) };
