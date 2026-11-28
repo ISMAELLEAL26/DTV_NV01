@@ -24,6 +24,23 @@ interface BienestarOrderModalProps {
 
 type EntregaColumn = 'PRIMERA' | 'SEGUNDA' | 'TERCERA' | 'CUARTA';
 
+const MESES_OPCIONES = [
+  'ENERO',
+  'FEBRERO',
+  'MARZO',
+  'ABRIL',
+  'MAYO',
+  'JUNIO',
+  'JULIO',
+  'AGOSTO',
+  'SEPTIEMBRE',
+  'OCTUBRE',
+  'NOVIEMBRE',
+  'DICIEMBRE',
+] as const;
+
+type MesNombre = (typeof MESES_OPCIONES)[number];
+
 const STORAGE_LOGO_KEY = 'pdv_bienestar_pedido_logo_v1';
 
 const DEFAULT_BIENESTAR_LOGO_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(`
@@ -52,6 +69,11 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
+function getDefaultMes(): MesNombre {
+  const idx = new Date().getMonth();
+  return MESES_OPCIONES[idx] ?? 'DICIEMBRE';
+}
+
 export default function BienestarOrderModal({ open, onClose }: BienestarOrderModalProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -64,6 +86,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
   const [tiendaNombre, setTiendaNombre] = useState('MILPILLAS');
   const [almacenNombre, setAlmacenNombre] = useState('ALMACEN OMETEPEC');
   const [entregaCol, setEntregaCol] = useState<EntregaColumn>('PRIMERA');
+  const [mesPedido, setMesPedido] = useState<MesNombre>(getDefaultMes);
   const [customLogo, setCustomLogo] = useState<string>(() => {
     try {
       return localStorage.getItem(STORAGE_LOGO_KEY) || '';
@@ -314,7 +337,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
             <td style="text-align:center;">${idx + 1}</td>
             <td>${escapeHtml(it.claveBienestar)}</td>
             <td>${escapeHtml(it.product.name)}</td>
-            <td style="text-align:right;">${it.quantity}</td>
+            <td style="text-align:right;">${it.quantity} PIEZAS</td>
             <td style="text-align:right;">${formatCurrency(it.unitCost)}</td>
             <td style="text-align:right;">${formatCurrency(sub)}</td>
           </tr>
@@ -346,7 +369,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
         <div class="header">
           <div>
             <h1>Pedido Bienestar · Control Interno y Costos</h1>
-            <div class="meta">Tienda #${escapeHtml(tiendaNum)} · ${escapeHtml(tiendaNombre)} · Almacén: ${escapeHtml(almacenNombre)} · Fecha: ${escapeHtml(fecha)}</div>
+            <div class="meta">Tienda #${escapeHtml(tiendaNum)} · ${escapeHtml(tiendaNombre)} · Almacén: ${escapeHtml(almacenNombre)} · ENTREGA ${escapeHtml(entregaCol)} · MES: ${escapeHtml(mesPedido)} · Fecha: ${escapeHtml(fecha)}</div>
           </div>
           <img class="logo" src="${activeLogo}" alt="Logo Bienestar" />
         </div>
@@ -356,7 +379,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
               <th style="width:42px;text-align:center;">#</th>
               <th style="width:120px;">Clave / Cód. 2</th>
               <th>Artículo</th>
-              <th style="width:70px;text-align:right;">Cantidad</th>
+              <th style="width:105px;text-align:right;">CANTIDAD SOLICITADA</th>
               <th style="width:95px;text-align:right;">Costo Unit.</th>
               <th style="width:105px;text-align:right;">Subtotal</th>
             </tr>
@@ -364,7 +387,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
           <tbody>${rowsHtml}</tbody>
         </table>
         <div class="summary">
-          <div class="summary-row"><span>Total de piezas:</span><strong>${totalPiezas}</strong></div>
+          <div class="summary-row"><span>Total de piezas:</span><strong>${totalPiezas} PIEZAS</strong></div>
           <div class="summary-row"><span>Subtotal general:</span><strong>${formatCurrency(subtotalGeneral)}</strong></div>
           <div class="summary-row"><span>Bonificación (${safeBonus}%):</span><strong>${formatCurrency(gananciaBonificacion)}</strong></div>
           <div class="summary-row summary-total"><span>Total estimado:</span><span>${formatCurrency(subtotalGeneral)}</span></div>
@@ -384,17 +407,10 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
     const rowsHtml = orderItems
       .map((it, idx) => `
         <tr>
-          <td style="text-align:center;">${idx + 1}</td>
-          <td>${escapeHtml(it.claveBienestar)}</td>
-          <td>${escapeHtml(it.product.name)}</td>
-          <td style="text-align:center;">${escapeHtml(it.cap || '-')}</td>
-          <td style="text-align:center;">${escapeHtml(it.med || '-')}</td>
-          <td style="text-align:center;">${escapeHtml(it.gram || '-')}</td>
-          <td style="text-align:center;">${escapeHtml(it.emp || '-')}</td>
-          <td style="text-align:center;">${entregaCol === 'PRIMERA' ? it.quantity : ''}</td>
-          <td style="text-align:center;">${entregaCol === 'SEGUNDA' ? it.quantity : ''}</td>
-          <td style="text-align:center;">${entregaCol === 'TERCERA' ? it.quantity : ''}</td>
-          <td style="text-align:center;">${entregaCol === 'CUARTA' ? it.quantity : ''}</td>
+          <td class="num-col">${idx + 1}</td>
+          <td class="clave-col">${escapeHtml(it.claveBienestar)}</td>
+          <td class="art-col">${escapeHtml(it.product.name)}</td>
+          <td class="cant-col">${it.quantity} PIEZAS</td>
         </tr>
       `)
       .join('');
@@ -406,39 +422,37 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
         <meta charset="utf-8" />
         <title>Pedido Bienestar · Formato Almacén</title>
         <style>
-          body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 24px; font-size: 11px; }
-          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f766e; padding-bottom: 10px; margin-bottom: 14px; }
-          .logo { max-height: 52px; width: auto; }
-          h1 { margin: 0 0 4px; font-size: 17px; }
-          .meta { color: #475569; font-size: 11px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { border: 1px solid #cbd5e1; padding: 5px 6px; }
-          th { background: #f1f5f9; font-size: 10px; text-align: center; }
-          th.left, td.left { text-align: left; }
+          body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; margin: 24px; font-size: 14px; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #0f766e; padding-bottom: 14px; margin-bottom: 18px; gap: 16px; }
+          .logo { max-height: 68px; width: auto; }
+          h1 { margin: 0 0 8px; font-size: 24px; font-weight: 800; color: #0f172a; }
+          .meta { color: #1e293b; font-size: 14px; font-weight: 600; line-height: 1.45; }
+          .entrega-mes { margin-top: 6px; font-size: 15px; font-weight: 800; color: #0f766e; letter-spacing: 0.3px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+          th, td { border: 1.5px solid #94a3b8; padding: 10px 12px; font-size: 14px; }
+          th { background: #e2e8f0; color: #0f172a; font-size: 14px; font-weight: 800; text-align: left; }
+          th.num-col, td.num-col { width: 54px; text-align: center; font-weight: 700; }
+          th.clave-col, td.clave-col { width: 165px; font-family: monospace, sans-serif; font-size: 14px; font-weight: 700; }
+          th.art-col, td.art-col { text-align: left; font-weight: 600; }
+          th.cant-col, td.cant-col { width: 175px; text-align: right; font-weight: 800; }
         </style>
       </head>
       <body>
         <div class="header">
           <div>
             <h1>Pedido Bienestar · Formato de Almacén</h1>
-            <div class="meta">Tienda #${escapeHtml(tiendaNum)} · ${escapeHtml(tiendaNombre)} · Almacén: ${escapeHtml(almacenNombre)} · Entrega: ${escapeHtml(entregaCol)} · Fecha: ${escapeHtml(fecha)}</div>
+            <div class="meta">Tienda #${escapeHtml(tiendaNum)} · ${escapeHtml(tiendaNombre)} · Almacén: ${escapeHtml(almacenNombre)} · Fecha: ${escapeHtml(fecha)}</div>
+            <div class="entrega-mes">ENTREGA ${escapeHtml(entregaCol)} MES: ${escapeHtml(mesPedido)}</div>
           </div>
           <img class="logo" src="${activeLogo}" alt="Logo Bienestar" />
         </div>
         <table>
           <thead>
             <tr>
-              <th style="width:34px;">#</th>
-              <th style="width:105px;">Clave</th>
-              <th class="left">Artículo</th>
-              <th style="width:48px;">CAP</th>
-              <th style="width:48px;">MED</th>
-              <th style="width:52px;">GRAM</th>
-              <th style="width:48px;">EMP</th>
-              <th style="width:62px;">1RA</th>
-              <th style="width:62px;">2DA</th>
-              <th style="width:62px;">3RA</th>
-              <th style="width:62px;">4TA</th>
+              <th class="num-col">#</th>
+              <th class="clave-col">Clave</th>
+              <th class="art-col">Artículo</th>
+              <th class="cant-col">CANTIDAD SOLICITADA</th>
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>
@@ -497,7 +511,7 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
             </div>
           )}
 
-          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-4">
+          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-5">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">No. Tienda</label>
               <input
@@ -536,6 +550,20 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
                 <option value="SEGUNDA">2DA ENTREGA</option>
                 <option value="TERCERA">3RA ENTREGA</option>
                 <option value="CUARTA">4TA ENTREGA</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Mes</label>
+              <select
+                value={mesPedido}
+                onChange={(e) => setMesPedido(e.target.value as MesNombre)}
+                className={`w-full ${fieldClass}`}
+              >
+                {MESES_OPCIONES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
