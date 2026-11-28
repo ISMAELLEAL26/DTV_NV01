@@ -210,4 +210,541 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
       return;
     }
 
-    const unitCost = Number(selectedProduct.cost_price) || 0
+    const unitCost = Number(selectedProduct.cost_price) || 0;
+
+    setOrderItems((prev) => {
+      const idx = prev.findIndex((it) => it.product.id === selectedProduct.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + cleanQty };
+        return copy;
+      }
+      return [
+        ...prev,
+        {
+          product: selectedProduct,
+          claveBienestar,
+          quantity: cleanQty,
+          unitCost,
+          cap: '',
+          med: selectedProduct.unit?.slice(0, 1).toUpperCase() || 'P',
+          gram: '',
+          emp: '',
+        },
+      ];
+    });
+
+    setSelectedProduct(null);
+    setSearchInput('');
+    setQtyInput(1);
+    setError(null);
+    window.setTimeout(() => searchRef.current?.focus(), 20);
+  };
+
+  const updateItemQty = (productId: string, quantity: number) => {
+    const clean = Math.max(1, Math.round(Number(quantity) || 1));
+    setOrderItems((prev) =>
+      prev.map((it) => (it.product.id === productId ? { ...it, quantity: clean } : it))
+    );
+  };
+
+  const updateItemField = (
+    productId: string,
+    field: 'cap' | 'med' | 'gram' | 'emp' | 'unitCost',
+    value: string
+  ) => {
+    setOrderItems((prev) =>
+      prev.map((it) => {
+        if (it.product.id !== productId) return it;
+        if (field === 'unitCost') {
+          return { ...it, unitCost: Math.max(0, Number(value) || 0) };
+        }
+        return { ...it, [field]: value };
+      })
+    );
+  };
+
+  const removeItem = (productId: string) => {
+    setOrderItems((prev) => prev.filter((it) => it.product.id !== productId));
+  };
+
+  const subtotalGeneral = useMemo(
+    () => orderItems.reduce((acc, it) => acc + it.quantity * it.unitCost, 0),
+    [orderItems]
+  );
+
+  const totalPiezas = useMemo(
+    () => orderItems.reduce((acc, it) => acc + it.quantity, 0),
+    [orderItems]
+  );
+
+  const safeBonus = Math.max(0, Number(bonusPercent) || 0);
+  const gananciaBonificacion = useMemo(
+    () => subtotalGeneral * (safeBonus / 100),
+    [subtotalGeneral, safeBonus]
+  );
+
+  const openPrintDocument = (html: string, title: string) => {
+    const win = window.open('', '_blank', 'width=960,height=720');
+    if (!win) {
+      setError('El navegador bloqueó la ventana del PDF. Haz clic en "Permitir ventanas emergentes" en la barra de arriba.');
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.document.title = title;
+    window.setTimeout(() => {
+      win.focus();
+      win.print();
+    }, 300);
+  };
+
+  const handleDownloadInternalPdf = () => {
+    if (orderItems.length === 0) {
+      setError('Agrega al menos un artículo antes de generar los PDF.');
+      return;
+    }
+    const fecha = new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+    const rowsHtml = orderItems
+      .map((it, idx) => {
+        const sub = it.quantity * it.unitCost;
+        return `
+          <tr>
+            <td style="text-align:center;">${idx + 1}</td>
+            <td>${escapeHtml(it.claveBienestar)}</td>
+            <td>${escapeHtml(it.product.name)}</td>
+            <td style="text-align:right;">${it.quantity}</td>
+            <td style="text-align:right;">${formatCurrency(it.unitCost)}</td>
+            <td style="text-align:right;">${formatCurrency(sub)}</td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    const html = `
+      <!doctype html>
+      <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <title>Pedido Bienestar · Control Interno</title>
+        <style>
+          body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 24px; font-size: 12px; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f766e; padding-bottom: 12px; margin-bottom: 16px; }
+          .logo { max-height: 54px; width: auto; }
+          h1 { margin: 0 0 4px; font-size: 18px; color: #0f172a; }
+          .meta { color: #475569; font-size: 11px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; }
+          th { background: #f1f5f9; text-align: left; font-size: 11px; }
+          .summary { margin-top: 16px; margin-left: auto; width: 320px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; background: #f8fafc; }
+          .summary-row { display: flex; justify-content: space-between; margin: 5px 0; }
+          .summary-total { font-weight: 700; font-size: 14px; border-top: 1px solid #cbd5e1; padding-top: 6px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1>Pedido Bienestar · Control Interno y Costos</h1>
+            <div class="meta">Tienda #${escapeHtml(tiendaNum)} · ${escapeHtml(tiendaNombre)} · Almacén: ${escapeHtml(almacenNombre)} · Fecha: ${escapeHtml(fecha)}</div>
+          </div>
+          <img class="logo" src="${activeLogo}" alt="Logo Bienestar" />
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:42px;text-align:center;">#</th>
+              <th style="width:120px;">Clave / Cód. 2</th>
+              <th>Artículo</th>
+              <th style="width:70px;text-align:right;">Cantidad</th>
+              <th style="width:95px;text-align:right;">Costo Unit.</th>
+              <th style="width:105px;text-align:right;">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <div class="summary">
+          <div class="summary-row"><span>Total de piezas:</span><strong>${totalPiezas}</strong></div>
+          <div class="summary-row"><span>Subtotal general:</span><strong>${formatCurrency(subtotalGeneral)}</strong></div>
+          <div class="summary-row"><span>Bonificación (${safeBonus}%):</span><strong>${formatCurrency(gananciaBonificacion)}</strong></div>
+          <div class="summary-row summary-total"><span>Total estimado:</span><span>${formatCurrency(subtotalGeneral)}</span></div>
+        </div>
+      </body>
+      </html>
+    `;
+    openPrintDocument(html, 'Pedido Bienestar - Control Interno');
+  };
+
+  const handleDownloadWarehousePdf = () => {
+    if (orderItems.length === 0) {
+      setError('Agrega al menos un artículo antes de generar los PDF.');
+      return;
+    }
+    const fecha = new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+    const rowsHtml = orderItems
+      .map((it, idx) => `
+        <tr>
+          <td style="text-align:center;">${idx + 1}</td>
+          <td>${escapeHtml(it.claveBienestar)}</td>
+          <td>${escapeHtml(it.product.name)}</td>
+          <td style="text-align:center;">${escapeHtml(it.cap || '-')}</td>
+          <td style="text-align:center;">${escapeHtml(it.med || '-')}</td>
+          <td style="text-align:center;">${escapeHtml(it.gram || '-')}</td>
+          <td style="text-align:center;">${escapeHtml(it.emp || '-')}</td>
+          <td style="text-align:center;">${entregaCol === 'PRIMERA' ? it.quantity : ''}</td>
+          <td style="text-align:center;">${entregaCol === 'SEGUNDA' ? it.quantity : ''}</td>
+          <td style="text-align:center;">${entregaCol === 'TERCERA' ? it.quantity : ''}</td>
+          <td style="text-align:center;">${entregaCol === 'CUARTA' ? it.quantity : ''}</td>
+        </tr>
+      `)
+      .join('');
+
+    const html = `
+      <!doctype html>
+      <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <title>Pedido Bienestar · Formato Almacén</title>
+        <style>
+          body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 24px; font-size: 11px; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f766e; padding-bottom: 10px; margin-bottom: 14px; }
+          .logo { max-height: 52px; width: auto; }
+          h1 { margin: 0 0 4px; font-size: 17px; }
+          .meta { color: #475569; font-size: 11px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th, td { border: 1px solid #cbd5e1; padding: 5px 6px; }
+          th { background: #f1f5f9; font-size: 10px; text-align: center; }
+          th.left, td.left { text-align: left; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1>Pedido Bienestar · Formato de Almacén</h1>
+            <div class="meta">Tienda #${escapeHtml(tiendaNum)} · ${escapeHtml(tiendaNombre)} · Almacén: ${escapeHtml(almacenNombre)} · Entrega: ${escapeHtml(entregaCol)} · Fecha: ${escapeHtml(fecha)}</div>
+          </div>
+          <img class="logo" src="${activeLogo}" alt="Logo Bienestar" />
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:34px;">#</th>
+              <th style="width:105px;">Clave</th>
+              <th class="left">Artículo</th>
+              <th style="width:48px;">CAP</th>
+              <th style="width:48px;">MED</th>
+              <th style="width:52px;">GRAM</th>
+              <th style="width:48px;">EMP</th>
+              <th style="width:62px;">1RA</th>
+              <th style="width:62px;">2DA</th>
+              <th style="width:62px;">3RA</th>
+              <th style="width:62px;">4TA</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </body>
+      </html>
+    `;
+    openPrintDocument(html, 'Pedido Bienestar - Formato Almacen');
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <img src={activeLogo} alt="Logo Bienestar" className="h-10 w-auto rounded object-contain" />
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Pedido Bienestar</h2>
+              <p className="text-xs text-slate-500">
+                Captura por código, SKU o nombre · Control interno y formato de almacén
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleLogoUpload}
+            />
+            <Button variant="secondary" onClick={() => logoInputRef.current?.click()}>
+              <ImagePlus size={15} /> Logo
+            </Button>
+            {customLogo && (
+              <Button variant="secondary" onClick={handleResetLogo} title="Restaurar logo predeterminado">
+                <RotateCcw size={15} />
+              </Button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              aria-label="Cerrar modal"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-4">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">No. Tienda</label>
+              <input
+                type="text"
+                value={tiendaNum}
+                onChange={(e) => setTiendaNum(e.target.value)}
+                className={`w-full ${fieldClass}`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Tienda / Localidad</label>
+              <input
+                type="text"
+                value={tiendaNombre}
+                onChange={(e) => setTiendaNombre(e.target.value)}
+                className={`w-full ${fieldClass}`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Almacén</label>
+              <input
+                type="text"
+                value={almacenNombre}
+                onChange={(e) => setAlmacenNombre(e.target.value)}
+                className={`w-full ${fieldClass}`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Entrega</label>
+              <select
+                value={entregaCol}
+                onChange={(e) => setEntregaCol(e.target.value as EntregaColumn)}
+                className={`w-full ${fieldClass}`}
+              >
+                <option value="PRIMERA">1RA ENTREGA</option>
+                <option value="SEGUNDA">2DA ENTREGA</option>
+                <option value="TERCERA">3RA ENTREGA</option>
+                <option value="CUARTA">4TA ENTREGA</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="relative grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-12">
+            <div className="relative sm:col-span-7">
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
+                {loadingProducts ? 'Cargando catálogo...' : 'Buscar o escanear producto (código, SKU o nombre)'}
+              </label>
+              <div className="relative">
+                <ScanLine size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => {
+                    setSearchInput(e.target.value);
+                    setSelectedProduct(null);
+                  }}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Escribe nombre, SKU o escanea código..."
+                  className={`w-full pl-9 ${fieldClass}`}
+                />
+              </div>
+
+              {suggestions.length > 0 && !selectedProduct && (
+                <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                  {suggestions.map((prod) => (
+                    <button
+                      key={prod.id}
+                      type="button"
+                      onClick={() => selectArticle(prod)}
+                      className="flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left text-sm hover:bg-emerald-50 last:border-b-0"
+                    >
+                      <span className="font-medium text-slate-800">{prod.name}</span>
+                      <span className="ml-2 text-xs text-slate-500">
+                        {prod.barcode_2 || prod.sku || prod.barcode || 'Sin código'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Cantidad</label>
+              <input
+                ref={qtyRef}
+                type="number"
+                min={1}
+                step={1}
+                value={qtyInput}
+                onChange={(e) => setQtyInput(Math.max(1, Math.round(Number(e.target.value) || 1)))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddItem();
+                  }
+                }}
+                className={`w-full ${fieldClass}`}
+              />
+            </div>
+
+            <div className="flex items-end sm:col-span-3">
+              <Button type="button" onClick={handleAddItem} className="w-full justify-center">
+                <Plus size={16} /> Agregar artículo
+              </Button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-600">
+                <tr>
+                  <th className="px-3 py-2.5">Clave</th>
+                  <th className="px-3 py-2.5">Producto</th>
+                  <th className="px-2 py-2.5 text-center">Cant.</th>
+                  <th className="px-2 py-2.5 text-right">Costo</th>
+                  <th className="px-2 py-2.5 text-center">CAP</th>
+                  <th className="px-2 py-2.5 text-center">MED</th>
+                  <th className="px-2 py-2.5 text-center">GRAM</th>
+                  <th className="px-2 py-2.5 text-center">EMP</th>
+                  <th className="px-3 py-2.5 text-right">Subtotal</th>
+                  <th className="px-2 py-2.5 text-center">Quitar</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {orderItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-500">
+                      Aún no has agregado artículos al pedido Bienestar.
+                    </td>
+                  </tr>
+                ) : (
+                  orderItems.map((it) => (
+                    <tr key={it.product.id} className="hover:bg-slate-50/80">
+                      <td className="px-3 py-2 font-mono text-xs text-slate-600">{it.claveBienestar}</td>
+                      <td className="px-3 py-2 font-medium text-slate-800">{it.product.name}</td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="number"
+                          min={1}
+                          value={it.quantity}
+                          onChange={(e) => updateItemQty(it.product.id, Number(e.target.value))}
+                          className="w-16 rounded border border-slate-200 px-2 py-1 text-center text-xs"
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={it.unitCost}
+                          onChange={(e) => updateItemField(it.product.id, 'unitCost', e.target.value)}
+                          className="w-20 rounded border border-slate-200 px-2 py-1 text-right text-xs"
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="text"
+                          value={it.cap}
+                          onChange={(e) => updateItemField(it.product.id, 'cap', e.target.value)}
+                          className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="text"
+                          value={it.med}
+                          onChange={(e) => updateItemField(it.product.id, 'med', e.target.value)}
+                          className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="text"
+                          value={it.gram}
+                          onChange={(e) => updateItemField(it.product.id, 'gram', e.target.value)}
+                          className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="text"
+                          value={it.emp}
+                          onChange={(e) => updateItemField(it.product.id, 'emp', e.target.value)}
+                          className="w-14 rounded border border-slate-200 px-1.5 py-1 text-center text-xs"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold text-slate-900">
+                        {formatCurrency(it.quantity * it.unitCost)}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeItem(it.product.id)}
+                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          aria-label="Eliminar artículo"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
+                Bonificación (%)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.5"
+                value={bonusPercent}
+                onChange={(e) => setBonusPercent(Math.max(0, Number(e.target.value) || 0))}
+                className={`w-full ${fieldClass}`}
+              />
+            </div>
+            <div className="flex flex-col justify-center rounded-lg bg-white px-3 py-2 border border-slate-200">
+              <span className="text-xs text-slate-500">Piezas: {totalPiezas} · Subtotal</span>
+              <span className="text-base font-bold text-slate-900">{formatCurrency(subtotalGeneral)}</span>
+            </div>
+            <div className="flex flex-col justify-center rounded-lg bg-emerald-50 px-3 py-2 border border-emerald-200">
+              <span className="text-xs text-emerald-700">Bonificación ({safeBonus}%)</span>
+              <span className="text-base font-bold text-emerald-800">{formatCurrency(gananciaBonificacion)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <Button variant="secondary" onClick={onClose}>
+            Cerrar
+          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={handleDownloadWarehousePdf}>
+              <Printer size={16} /> PDF Almacén
+            </Button>
+            <Button onClick={handleDownloadInternalPdf}>
+              <FileText size={16} /> PDF Control Interno
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
