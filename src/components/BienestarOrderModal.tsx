@@ -115,6 +115,32 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
     };
   }, [open]);
 
+  const suggestions = useMemo(() => {
+    const q = searchInput.trim();
+    if (!q) return [];
+    return products
+      .filter((p) =>
+        matchesQuery(q, p.name, p.barcode ?? '', p.barcode_2 ?? '', p.sku ?? '')
+      )
+      .slice(0, 8);
+  }, [products, searchInput]);
+
+  const subtotalGeneral = useMemo(
+    () => orderItems.reduce((acc, it) => acc + it.quantity * it.unitCost, 0),
+    [orderItems]
+  );
+
+  const totalPiezas = useMemo(
+    () => orderItems.reduce((acc, it) => acc + it.quantity, 0),
+    [orderItems]
+  );
+
+  const safeBonus = Math.max(0, Number(bonusPercent) || 0);
+  const gananciaBonificacion = useMemo(
+    () => subtotalGeneral * (safeBonus / 100),
+    [subtotalGeneral, safeBonus]
+  );
+
   if (!open) return null;
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -148,16 +174,6 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
       // Ignorar
     }
   };
-
-  const suggestions = useMemo(() => {
-    const q = searchInput.trim();
-    if (!q) return [];
-    return products
-      .filter((p) =>
-        matchesQuery(q, p.name, p.barcode ?? '', p.barcode_2 ?? '', p.sku ?? '')
-      )
-      .slice(0, 8);
-  }, [products, searchInput]);
 
   const selectArticle = (product: Product) => {
     setSelectedProduct(product);
@@ -267,22 +283,6 @@ export default function BienestarOrderModal({ open, onClose }: BienestarOrderMod
   const removeItem = (productId: string) => {
     setOrderItems((prev) => prev.filter((it) => it.product.id !== productId));
   };
-
-  const subtotalGeneral = useMemo(
-    () => orderItems.reduce((acc, it) => acc + it.quantity * it.unitCost, 0),
-    [orderItems]
-  );
-
-  const totalPiezas = useMemo(
-    () => orderItems.reduce((acc, it) => acc + it.quantity, 0),
-    [orderItems]
-  );
-
-  const safeBonus = Math.max(0, Number(bonusPercent) || 0);
-  const gananciaBonificacion = useMemo(
-    () => subtotalGeneral * (safeBonus / 100),
-    [subtotalGeneral, safeBonus]
-  );
 
   const openPrintDocument = (html: string, title: string) => {
     const win = window.open('', '_blank', 'width=960,height=720');
